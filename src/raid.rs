@@ -84,7 +84,11 @@ impl RaidInfo {
         let text = ::std::mem::replace(&mut tweet.text, "".into());
 
         parse_text(&text).map(move |parsed| {
-            let user_image = if tweet.user.default_profile_image {
+            let user_image = if tweet.user.default_profile_image ||
+                tweet.user.profile_image_url_https.contains(
+                    "default_profile",
+                )
+            {
                 None
             } else {
                 Some(tweet.user.profile_image_url_https.into())

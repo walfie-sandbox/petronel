@@ -37,9 +37,6 @@ quick_main!(|| -> Result<()> {
 
     tracking.push_str(",I need backup!Battle ID:");
 
-    // TODO: This fails with a 412 Precondition Failed error because the
-    // `twitter_stream` crate isn't setting the Content-Length header.
-    // When the fix is released in upstream, bump the required version
     let future = TwitterStreamBuilder::filter(&token)
         .handle(&core.handle())
         .user_agent(Some("petronel"))
