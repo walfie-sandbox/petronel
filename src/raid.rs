@@ -1,13 +1,113 @@
 use chrono;
+
+use error::*;
+use futures::{Async, Future, Poll, Stream};
+use futures::future::FlattenStream;
+use hyper;
 use regex::Regex;
 use std::ops::Deref;
 use string_cache::DefaultAtom;
+use tokio_core::reactor::Handle;
+use twitter_stream::{FutureTwitterStream, Token, TwitterStreamBuilder};
+use twitter_stream::message::StreamMessage;
 use twitter_stream::message::Tweet;
 
 pub type DateTime = chrono::DateTime<chrono::Utc>;
 pub type TweetId = u64;
 pub type RaidId = String;
 pub type BossLevel = i16;
+
+const GRANBLUE_APP_SOURCE: &'static str =
+r#"<a href="http://granbluefantasy.jp/" rel="nofollow">グランブルー ファンタジー</a>"#;
+
+lazy_static! {
+    static ref REGEX_JAPANESE: Regex = Regex::new("\
+        (?P<text>(?s).*)参加者募集！参戦ID：(?P<id>[0-9A-F]+)\n\
+        (?P<boss>.+)\n?\
+        (?P<url>.*)\
+    ").expect("invalid Japanese raid tweet regex");
+
+    static ref REGEX_ENGLISH: Regex = Regex::new("\
+        (?P<text>(?s).*)I need backup!Battle ID: (?P<id>[0-9A-F]+)\n\
+        (?P<boss>.+)\n?\
+        (?P<url>.*)\
+    ").expect("invalid English raid tweet regex");
+
+    static ref REGEX_IMAGE_URL: Regex = Regex::new("^https?://[^ ]+$")
+        .expect("invalid image URL regex");
+
+    static ref REGEX_BOSS_NAME: Regex = Regex::new("\
+        Lv(?:l )?(?P<level>[0-9]+) .*\
+    ").expect("invalid boss name regex");
+}
+
+#[must_use = "streams do nothing unless polled"]
+pub struct RaidInfoStream(FlattenStream<FutureTwitterStream>);
+
+impl RaidInfoStream {
+    fn track() -> String {
+        let mut track = (3..35)
+            .map(|i| format!("Lv{}", i * 5))
+            .collect::<Vec<_>>()
+            .join(",");
+        track.push_str(",I need backup!Battle ID:");
+
+        track
+    }
+
+    // TODO: Re-export Token
+    pub fn with_client<C, B>(hyper_client: &hyper::Client<C, B>, token: &Token) -> Self
+    where
+        C: hyper::client::Connect,
+        B: From<Vec<u8>> + Stream<Error = hyper::Error> + 'static,
+        B::Item: AsRef<[u8]>,
+    {
+        let stream = TwitterStreamBuilder::filter(token)
+            .client(&hyper_client)
+            .user_agent(Some("petronel")) // TODO: Make this configurable?
+            .timeout(None)
+            .track(Some(&Self::track()))
+            .listen()
+            .flatten_stream();
+
+        RaidInfoStream(stream)
+    }
+
+    // TODO: Clean up duplicated code
+    pub fn with_handle(handle: &Handle, token: &Token) -> Self {
+        let stream = TwitterStreamBuilder::filter(token)
+            .handle(handle)
+            .user_agent(Some("petronel")) // TODO: Make this configurable?
+            .timeout(None)
+            .track(Some(&Self::track()))
+            .listen()
+            .flatten_stream();
+
+        RaidInfoStream(stream)
+    }
+}
+
+impl Stream for RaidInfoStream {
+    type Item = RaidInfo;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        loop {
+            let polled = self.0.poll().chain_err(|| ErrorKind::Twitter);
+            if let Some(json) = try_ready!(polled) {
+                let msg = StreamMessage::from_str(json.as_ref()).chain_err(
+                    || ErrorKind::Json,
+                )?;
+
+                if let StreamMessage::Tweet(tweet) = msg {
+                    if let Some(raid_info) = RaidInfo::from_tweet(*tweet) {
+                        return Ok(Async::Ready(Some(raid_info)));
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BossName(DefaultAtom);
@@ -64,30 +164,6 @@ pub enum Language {
     Japanese,
     English,
     Other,
-}
-
-const GRANBLUE_APP_SOURCE: &'static str =
-r#"<a href="http://granbluefantasy.jp/" rel="nofollow">グランブルー ファンタジー</a>"#;
-
-lazy_static! {
-    static ref REGEX_JAPANESE: Regex = Regex::new("\
-        (?P<text>(?s).*)参加者募集！参戦ID：(?P<id>[0-9A-F]+)\n\
-        (?P<boss>.+)\n?\
-        (?P<url>.*)\
-    ").expect("invalid Japanese raid tweet regex");
-
-    static ref REGEX_ENGLISH: Regex = Regex::new("\
-        (?P<text>(?s).*)I need backup!Battle ID: (?P<id>[0-9A-F]+)\n\
-        (?P<boss>.+)\n?\
-        (?P<url>.*)\
-    ").expect("invalid English raid tweet regex");
-
-    static ref REGEX_IMAGE_URL: Regex = Regex::new("^https?://[^ ]+$")
-        .expect("invalid image URL regex");
-
-    static ref REGEX_BOSS_NAME: Regex = Regex::new("\
-        Lv(?:l )?(?P<level>[0-9]+) .*\
-    ").expect("invalid boss name regex");
 }
 
 impl RaidInfo {
