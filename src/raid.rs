@@ -8,26 +8,39 @@ pub type DateTime = chrono::DateTime<chrono::Utc>;
 pub type TweetId = u64;
 pub type RaidId = String;
 pub type BossLevel = i16;
-pub type BossName = CachedString;
-pub type BossImageUrl = CachedString;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CachedString(DefaultAtom);
-impl Deref for CachedString {
+pub struct BossName(DefaultAtom);
+impl Deref for BossName {
     type Target = DefaultAtom;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct RaidInfo {
-    pub raid: Raid,
-    pub boss: RaidBoss,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BossImageUrl(DefaultAtom);
+impl Deref for BossImageUrl {
+    type Target = DefaultAtom;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl BossName {
+    pub fn parse_level(&self) -> Option<BossLevel> {
+        parse_level(self)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Raid {
+pub struct RaidInfo {
+    pub tweet: RaidTweet,
+    pub image: Option<BossImageUrl>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RaidTweet {
     pub tweet_id: TweetId,
     pub boss_name: BossName,
     pub raid_id: String,
@@ -35,15 +48,6 @@ pub struct Raid {
     pub user_image: Option<String>,
     pub text: Option<String>,
     pub created_at: DateTime,
-    pub language: Language,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct RaidBoss {
-    pub name: BossName,
-    pub level: BossLevel,
-    pub image: Option<BossImageUrl>,
-    pub last_seen: DateTime,
     pub language: Language,
 }
 
@@ -62,7 +66,6 @@ pub enum Language {
     Other,
 }
 
-const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 const GRANBLUE_APP_SOURCE: &'static str =
 r#"<a href="http://granbluefantasy.jp/" rel="nofollow">グランブルー ファンタジー</a>"#;
 
@@ -106,12 +109,9 @@ impl RaidInfo {
                 Some(tweet.user.profile_image_url_https.into())
             };
 
-            // TODO: Only parse level for newly-found bosses?
-            let level = parse_level(parsed.boss_name).unwrap_or(DEFAULT_BOSS_LEVEL);
-
-            let raid = Raid {
+            let raid_tweet = RaidTweet {
                 tweet_id: tweet.id,
-                boss_name: CachedString(parsed.boss_name.into()),
+                boss_name: BossName(parsed.boss_name.into()),
                 raid_id: parsed.raid_id.into(),
                 user: tweet.user.screen_name.into(),
                 user_image,
@@ -121,18 +121,13 @@ impl RaidInfo {
             };
 
             let image = tweet.entities.media.and_then(|mut media| {
-                media.pop().map(|m| CachedString(m.media_url_https.into()))
+                media.pop().map(|m| BossImageUrl(m.media_url_https.into()))
             });
 
-            let boss = RaidBoss {
-                name: raid.boss_name.clone(),
-                level,
+            RaidInfo {
+                tweet: raid_tweet,
                 image,
-                last_seen: raid.created_at,
-                language: raid.language,
-            };
-
-            RaidInfo { raid, boss }
+            }
         })
     }
 }
