@@ -1,12 +1,13 @@
 use chrono;
 use regex::Regex;
+use string_cache::DefaultAtom;
 use twitter_stream::message::Tweet;
 
 pub type DateTime = chrono::DateTime<chrono::Utc>;
 pub type TweetId = u64;
 pub type RaidId = String;
 pub type BossLevel = i16;
-pub type BossName = String;
+pub type BossName = DefaultAtom;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RaidInfo {
@@ -71,7 +72,7 @@ lazy_static! {
         .expect("invalid image URL regex");
 
     static ref REGEX_BOSS_NAME: Regex = Regex::new("\
-        Lv(?:l )?(?P<level>[0-9]+) (.*)\
+        Lv(?:l )?(?P<level>[0-9]+) .*\
     ").expect("invalid boss name regex");
 }
 
@@ -94,6 +95,7 @@ impl RaidInfo {
                 Some(tweet.user.profile_image_url_https.into())
             };
 
+            // TODO: Only parse level for newly-found bosses?
             let level = parse_level(parsed.boss_name).unwrap_or(DEFAULT_BOSS_LEVEL);
 
             let raid = Raid {
@@ -112,7 +114,7 @@ impl RaidInfo {
             });
 
             let boss = RaidBoss {
-                name: raid.boss_name.clone(), // TODO: Interned strings
+                name: raid.boss_name.clone(),
                 level,
                 image,
                 last_seen: raid.created_at,
