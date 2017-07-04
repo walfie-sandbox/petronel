@@ -8,11 +8,13 @@ pub type RaidId = String;
 pub type BossLevel = i16;
 pub type BossName = String;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct RaidInfo {
     pub raid: Raid,
     pub boss: RaidBoss,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Raid {
     pub tweet_id: TweetId,
     pub boss_name: BossName,
@@ -24,6 +26,7 @@ pub struct Raid {
     pub language: Language,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct RaidBoss {
     pub name: BossName,
     pub level: BossLevel,
