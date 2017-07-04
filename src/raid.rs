@@ -46,6 +46,7 @@ pub struct RaidInfoStream(FlattenStream<FutureTwitterStream>);
 
 impl RaidInfoStream {
     fn track() -> String {
+        // "Lv15,Lv20,Lv25,Lv30,...,Lv175,I need backup!Battle ID:"
         let mut track = (3..35)
             .map(|i| format!("Lv{}", i * 5))
             .collect::<Vec<_>>()
@@ -55,7 +56,6 @@ impl RaidInfoStream {
         track
     }
 
-    // TODO: Re-export Token
     pub fn with_client<C, B>(hyper_client: &hyper::Client<C, B>, token: &Token) -> Self
     where
         C: hyper::client::Connect,

@@ -8,9 +8,9 @@ extern crate petronel;
 
 use futures::Stream;
 
+use petronel::Token;
 use petronel::error::*;
 use tokio_core::reactor::Core;
-use twitter_stream::Token;
 
 fn env(name: &str) -> Result<String> {
     ::std::env::var(name).chain_err(|| {

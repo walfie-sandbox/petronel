@@ -16,3 +16,5 @@ extern crate twitter_stream;
 
 pub mod raid;
 pub mod error;
+
+pub use twitter_stream::Token;
