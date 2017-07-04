@@ -104,12 +104,14 @@ impl Stream for RaidInfoStream {
                         return Ok(Async::Ready(Some(raid_info)));
                     }
                 }
+            } else {
+                return Ok(Async::Ready(None));
             }
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BossName(DefaultAtom);
 impl Deref for BossName {
     type Target = DefaultAtom;
@@ -118,7 +120,7 @@ impl Deref for BossName {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BossImageUrl(DefaultAtom);
 impl Deref for BossImageUrl {
     type Target = DefaultAtom;

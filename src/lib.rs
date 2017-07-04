@@ -1,5 +1,3 @@
-#![feature(conservative_impl_trait)]
-
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -16,5 +14,7 @@ extern crate twitter_stream;
 
 pub mod raid;
 pub mod error;
+mod petronel;
 
+pub use petronel::Petronel;
 pub use twitter_stream::Token;
