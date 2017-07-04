@@ -1,5 +1,6 @@
 use chrono;
 use regex::Regex;
+use std::ops::Deref;
 use string_cache::DefaultAtom;
 use twitter_stream::message::Tweet;
 
@@ -7,7 +8,17 @@ pub type DateTime = chrono::DateTime<chrono::Utc>;
 pub type TweetId = u64;
 pub type RaidId = String;
 pub type BossLevel = i16;
-pub type BossName = DefaultAtom;
+pub type BossName = CachedString;
+pub type BossImageUrl = CachedString;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CachedString(DefaultAtom);
+impl Deref for CachedString {
+    type Target = DefaultAtom;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RaidInfo {
@@ -31,7 +42,7 @@ pub struct Raid {
 pub struct RaidBoss {
     pub name: BossName,
     pub level: BossLevel,
-    pub image: Option<String>,
+    pub image: Option<BossImageUrl>,
     pub last_seen: DateTime,
     pub language: Language,
 }
@@ -100,7 +111,7 @@ impl RaidInfo {
 
             let raid = Raid {
                 tweet_id: tweet.id,
-                boss_name: parsed.boss_name.into(),
+                boss_name: CachedString(parsed.boss_name.into()),
                 raid_id: parsed.raid_id.into(),
                 user: tweet.user.screen_name.into(),
                 user_image,
@@ -110,7 +121,7 @@ impl RaidInfo {
             };
 
             let image = tweet.entities.media.and_then(|mut media| {
-                media.pop().map(|m| m.media_url_https.into())
+                media.pop().map(|m| CachedString(m.media_url_https.into()))
             });
 
             let boss = RaidBoss {
