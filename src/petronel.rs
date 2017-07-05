@@ -4,7 +4,7 @@ use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use futures::unsync::oneshot;
 
-use raid::{BossImageUrl, BossLevel, BossName, DateTime, RaidInfo};
+use raid::{BossImageUrl, BossLevel, BossName, DateTime, Language, RaidInfo};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -16,11 +16,12 @@ pub struct RaidBoss {
     pub level: BossLevel,
     pub image: Option<BossImageUrl>,
     pub last_seen: DateTime,
+    pub language: Language,
 }
 
 enum Event {
     NewRaidInfo(RaidInfo),
-    GetBosses(oneshot::Sender<String>),
+    GetBosses(oneshot::Sender<Vec<RaidBoss>>),
     ReadError,
 }
 
@@ -46,8 +47,7 @@ impl Petronel {
         AsyncResult(rx)
     }
 
-    // Return something other than String
-    pub fn get_bosses(&self) -> AsyncResult<String> {
+    pub fn get_bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
         self.request(Event::GetBosses)
     }
 }
@@ -92,8 +92,7 @@ impl<S> PetronelFuture<S> {
                 self.handle_raid_info(r);
             }
             GetBosses(tx) => {
-                let s = format!("{:#?}", self.bosses);
-                let _ = tx.send(s);
+                let _ = tx.send(self.bosses.values().cloned().collect::<Vec<_>>());
             }
             ReadError => {} // This should never happen
         }
@@ -112,6 +111,7 @@ impl<S> PetronelFuture<S> {
                     name: name,
                     image: info.image,
                     last_seen: info.tweet.created_at,
+                    language: info.tweet.language,
                 });
             }
         }

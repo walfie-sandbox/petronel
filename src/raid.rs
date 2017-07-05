@@ -5,6 +5,7 @@ use futures::{Async, Future, Poll, Stream};
 use futures::future::FlattenStream;
 use hyper;
 use regex::Regex;
+use std::fmt;
 use std::ops::Deref;
 use string_cache::DefaultAtom;
 use tokio_core::reactor::Handle;
@@ -119,6 +120,29 @@ impl Deref for BossName {
         &self.0
     }
 }
+impl fmt::Display for BossName {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl AsRef<str> for BossName {
+    fn as_ref(&self) -> &str {
+        self
+    }
+}
+
+impl BossName {
+    pub fn parse_level(&self) -> Option<BossLevel> {
+        parse_level(self)
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self
+    }
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BossImageUrl(DefaultAtom);
@@ -129,9 +153,23 @@ impl Deref for BossImageUrl {
     }
 }
 
-impl BossName {
-    pub fn parse_level(&self) -> Option<BossLevel> {
-        parse_level(self)
+impl BossImageUrl {
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self
+    }
+}
+
+impl fmt::Display for BossImageUrl {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl AsRef<str> for BossImageUrl {
+    fn as_ref(&self) -> &str {
+        self
     }
 }
 

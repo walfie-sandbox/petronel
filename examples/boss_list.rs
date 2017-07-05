@@ -37,7 +37,26 @@ quick_main!(|| -> Result<()> {
         .chain_err(|| "failed to create interval")?
         .then(|r| r.chain_err(|| "interval failed"))
         .and_then(move |_| client.get_bosses())
-        .for_each(|s| Ok(println!("{}", s)));
+        .for_each(|mut bosses| {
+            bosses.sort_by_key(|b| b.level);
+
+            for boss in bosses.iter() {
+                print!(
+                    "[{}] {:<3} | {} ({:?})",
+                    boss.last_seen,
+                    boss.level,
+                    boss.name,
+                    boss.language,
+                );
+
+                for image in boss.image.iter() {
+                    println!(" {}", image);
+                }
+            }
+
+            println!("");
+            Ok(())
+        });
 
     core.run(future.join(interval)).chain_err(
         || "stream failed",
