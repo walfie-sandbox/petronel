@@ -3,8 +3,12 @@ error_chain!{
         Twitter {
             description("Twitter streaming error")
         }
-        Json {
+        Json(s: String) {
             description("could not parse JSON")
+            display("failed to parse JSON: {}", s)
+        }
+        Closed {
+            description("channel closed by sender")
         }
     }
 }

@@ -95,9 +95,9 @@ impl Stream for RaidInfoStream {
         loop {
             let polled = self.0.poll().chain_err(|| ErrorKind::Twitter);
             if let Some(json) = try_ready!(polled) {
-                let msg = StreamMessage::from_str(json.as_ref()).chain_err(
-                    || ErrorKind::Json,
-                )?;
+                let msg = StreamMessage::from_str(json.as_ref()).chain_err(|| {
+                    ErrorKind::Json(json.to_string())
+                })?;
 
                 if let StreamMessage::Tweet(tweet) = msg {
                     if let Some(raid_info) = RaidInfo::from_tweet(*tweet) {

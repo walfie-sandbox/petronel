@@ -36,7 +36,7 @@ quick_main!(|| -> Result<()> {
     let interval = Interval::new(Duration::new(5, 0), &core.handle())
         .chain_err(|| "failed to create interval")?
         .then(|r| r.chain_err(|| "interval failed"))
-        .and_then(move |_| client.get_bosses().map_err(|_| "cancelled".into()))
+        .and_then(move |_| client.get_bosses())
         .for_each(|s| Ok(println!("{}", s)));
 
     core.run(future.join(interval)).chain_err(

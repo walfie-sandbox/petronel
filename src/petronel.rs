@@ -24,13 +24,31 @@ enum Event {
     ReadError,
 }
 
+pub struct AsyncResult<T>(oneshot::Receiver<T>);
+impl<T> Future for AsyncResult<T> {
+    type Item = T;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.0.poll().map_err(|_| ErrorKind::Closed.into())
+    }
+}
+
+
 pub struct Petronel(mpsc::UnboundedSender<Event>);
 impl Petronel {
-    // TODO: Create wrapper Future, return something other than String
-    pub fn get_bosses(&self) -> oneshot::Receiver<String> {
+    fn request<T, F>(&self, f: F) -> AsyncResult<T>
+    where
+        F: FnOnce(oneshot::Sender<T>) -> Event,
+    {
         let (tx, rx) = oneshot::channel();
-        let _ = mpsc::UnboundedSender::send(&self.0, Event::GetBosses(tx));
-        rx
+        let _ = mpsc::UnboundedSender::send(&self.0, f(tx));
+        AsyncResult(rx)
+    }
+
+    // Return something other than String
+    pub fn get_bosses(&self) -> AsyncResult<String> {
+        self.request(Event::GetBosses)
     }
 }
 
