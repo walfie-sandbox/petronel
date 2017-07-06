@@ -8,7 +8,6 @@ use futures::unsync::oneshot;
 use raid::{BossImageUrl, BossLevel, BossName, DateTime, Language, RaidInfo, RaidTweet};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
@@ -32,7 +31,7 @@ enum Event {
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
     GetBacklog {
         boss_name: BossName,
-        sender: oneshot::Sender<Arc<Vec<RaidTweet>>>,
+        sender: oneshot::Sender<Vec<RaidTweet>>,
     },
     ReadError,
 }
@@ -63,7 +62,7 @@ impl Petronel {
         self.request(Event::GetBosses)
     }
 
-    pub fn get_backlog<B>(&self, boss_name: B) -> AsyncResult<Arc<Vec<RaidTweet>>>
+    pub fn get_backlog<B>(&self, boss_name: B) -> AsyncResult<Vec<RaidTweet>>
     where
         B: AsRef<str>,
     {
@@ -129,7 +128,7 @@ impl<S> PetronelFuture<S> {
             }
             GetBacklog { boss_name, sender } => {
                 let backlog = self.bosses.get(&boss_name).map_or(
-                    Arc::new(vec![]), // TODO: Get rid of Arc
+                    vec![],
                     |e| e.backlog.snapshot(),
                 );
 
