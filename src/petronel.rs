@@ -8,6 +8,7 @@ use futures::unsync::oneshot;
 use raid::{BossImageUrl, BossLevel, BossName, DateTime, Language, RaidInfo, RaidTweet};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
@@ -23,7 +24,7 @@ pub struct RaidBoss {
 struct RaidBossEntry {
     boss: RaidBoss,
     last_seen: DateTime,
-    backlog: Backlog<RaidTweet>, // TODO: Arc<RaidTweet>, broadcast
+    backlog: Backlog<Arc<RaidTweet>>, // TODO: broadcast
 }
 
 enum Event {
@@ -31,7 +32,7 @@ enum Event {
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
     GetBacklog {
         boss_name: BossName,
-        sender: oneshot::Sender<Vec<RaidTweet>>,
+        sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
     ReadError,
 }
@@ -62,7 +63,7 @@ impl Petronel {
         self.request(Event::GetBosses)
     }
 
-    pub fn get_backlog<B>(&self, boss_name: B) -> AsyncResult<Vec<RaidTweet>>
+    pub fn get_backlog<B>(&self, boss_name: B) -> AsyncResult<Vec<Arc<RaidTweet>>>
     where
         B: AsRef<str>,
     {
@@ -144,7 +145,7 @@ impl<S> PetronelFuture<S> {
                 let value = entry.get_mut();
 
                 value.last_seen = info.tweet.created_at;
-                value.backlog.push(info.tweet);
+                value.backlog.push(Arc::new(info.tweet));
 
                 if value.boss.image.is_none() && info.image.is_some() {
                     // TODO: Image hash
@@ -166,7 +167,7 @@ impl<S> PetronelFuture<S> {
                     last_seen: info.tweet.created_at.clone(),
                     backlog: {
                         let mut backlog = Backlog::with_capacity(self.backlog_size);
-                        backlog.push(info.tweet); // TODO: Arc<RaidTweet>
+                        backlog.push(Arc::new(info.tweet));
                         backlog
                     },
                 });
