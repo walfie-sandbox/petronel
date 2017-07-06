@@ -134,6 +134,13 @@ impl AsRef<str> for BossName {
 }
 
 impl BossName {
+    pub fn new<S>(string: S) -> Self
+    where
+        S: AsRef<str>,
+    {
+        BossName(string.as_ref().into())
+    }
+
     pub fn parse_level(&self) -> Option<BossLevel> {
         parse_level(self)
     }

@@ -1,12 +1,14 @@
+use backlog::Backlog;
+
 use error::*;
 use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use futures::unsync::oneshot;
-
-use raid::{BossImageUrl, BossLevel, BossName, DateTime, Language, RaidInfo};
+use raid::{BossImageUrl, BossLevel, BossName, DateTime, Language, RaidInfo, RaidTweet};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
@@ -22,12 +24,16 @@ pub struct RaidBoss {
 struct RaidBossEntry {
     boss: RaidBoss,
     last_seen: DateTime,
-    // TODO: Backlog, broadcast
+    backlog: Backlog<RaidTweet>, // TODO: Arc<RaidTweet>, broadcast
 }
 
 enum Event {
     NewRaidInfo(RaidInfo),
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
+    GetBacklog {
+        boss_name: BossName,
+        sender: oneshot::Sender<Arc<Vec<RaidTweet>>>,
+    },
     ReadError,
 }
 
@@ -56,6 +62,18 @@ impl Petronel {
     pub fn get_bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
         self.request(Event::GetBosses)
     }
+
+    pub fn get_backlog<B>(&self, boss_name: B) -> AsyncResult<Arc<Vec<RaidTweet>>>
+    where
+        B: AsRef<str>,
+    {
+        self.request(|tx| {
+            Event::GetBacklog {
+                boss_name: BossName::new(boss_name),
+                sender: tx,
+            }
+        })
+    }
 }
 
 pub struct PetronelFuture<S> {
@@ -64,6 +82,7 @@ pub struct PetronelFuture<S> {
         OrElse<mpsc::UnboundedReceiver<Event>, fn(()) -> Result<Event>, Result<Event>>,
     >,
     bosses: HashMap<BossName, RaidBossEntry>,
+    backlog_size: usize,
 }
 
 impl Petronel {
@@ -71,7 +90,8 @@ impl Petronel {
         Ok(Event::ReadError)
     }
 
-    pub fn from_stream<S>(stream: S) -> (Self, PetronelFuture<S>)
+    // TODO: Builder
+    pub fn from_stream<S>(stream: S, backlog_size: usize) -> (Self, PetronelFuture<S>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
     {
@@ -83,6 +103,7 @@ impl Petronel {
         let future = PetronelFuture {
             events: stream_events.select(rx),
             bosses: HashMap::new(),
+            backlog_size,
         };
 
         (Petronel(tx), future)
@@ -106,16 +127,25 @@ impl<S> PetronelFuture<S> {
                         .collect::<Vec<_>>(),
                 );
             }
+            GetBacklog { boss_name, sender } => {
+                let backlog = self.bosses.get(&boss_name).map_or(
+                    Arc::new(vec![]), // TODO: Get rid of Arc
+                    |e| e.backlog.snapshot(),
+                );
+
+                let _ = sender.send(backlog);
+            }
             ReadError => {} // This should never happen
         }
     }
 
     fn handle_raid_info(&mut self, info: RaidInfo) {
-        match self.bosses.entry(info.tweet.boss_name) {
+        match self.bosses.entry(info.tweet.boss_name.clone()) {
             Entry::Occupied(mut entry) => {
                 let value = entry.get_mut();
 
                 value.last_seen = info.tweet.created_at;
+                value.backlog.push(info.tweet);
 
                 if value.boss.image.is_none() && info.image.is_some() {
                     // TODO: Image hash
@@ -134,8 +164,14 @@ impl<S> PetronelFuture<S> {
 
                 entry.insert(RaidBossEntry {
                     boss,
-                    last_seen: info.tweet.created_at,
+                    last_seen: info.tweet.created_at.clone(),
+                    backlog: {
+                        let mut backlog = Backlog::with_capacity(self.backlog_size);
+                        backlog.push(info.tweet); // TODO: Arc<RaidTweet>
+                        backlog
+                    },
                 });
+
             }
         }
     }
