@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 chrono = "0.4"
-error-chain = "0.10.0"
+error-chain = "0.10"
 futures = "0.1"
 hyper = "0.11"
 lazy_static = "0.2"

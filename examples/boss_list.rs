@@ -42,8 +42,7 @@ quick_main!(|| -> Result<()> {
 
             for boss in bosses.iter() {
                 print!(
-                    "[{}] {:<3} | {} ({:?})",
-                    boss.last_seen,
+                    "{:<3} | {} ({:?})",
                     boss.level,
                     boss.name,
                     boss.language,

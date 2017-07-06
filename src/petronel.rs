@@ -15,8 +15,14 @@ pub struct RaidBoss {
     pub name: BossName,
     pub level: BossLevel,
     pub image: Option<BossImageUrl>,
-    pub last_seen: DateTime,
     pub language: Language,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct RaidBossEntry {
+    boss: RaidBoss,
+    last_seen: DateTime,
+    // TODO: Backlog, broadcast
 }
 
 enum Event {
@@ -57,7 +63,7 @@ pub struct PetronelFuture<S> {
         Map<S, fn(RaidInfo) -> Event>,
         OrElse<mpsc::UnboundedReceiver<Event>, fn(()) -> Result<Event>, Result<Event>>,
     >,
-    bosses: HashMap<BossName, RaidBoss>,
+    bosses: HashMap<BossName, RaidBossEntry>,
 }
 
 impl Petronel {
@@ -92,7 +98,13 @@ impl<S> PetronelFuture<S> {
                 self.handle_raid_info(r);
             }
             GetBosses(tx) => {
-                let _ = tx.send(self.bosses.values().cloned().collect::<Vec<_>>());
+                let _ = tx.send(
+                    self.bosses
+                        .values()
+                        .cloned()
+                        .map(|e| e.boss)
+                        .collect::<Vec<_>>(),
+                );
             }
             ReadError => {} // This should never happen
         }
@@ -101,17 +113,28 @@ impl<S> PetronelFuture<S> {
     fn handle_raid_info(&mut self, info: RaidInfo) {
         match self.bosses.entry(info.tweet.boss_name) {
             Entry::Occupied(mut entry) => {
-                entry.get_mut().last_seen = info.tweet.created_at;
+                let value = entry.get_mut();
+
+                value.last_seen = info.tweet.created_at;
+
+                if value.boss.image.is_none() && info.image.is_some() {
+                    // TODO: Image hash
+                    value.boss.image = info.image;
+                }
             }
             Entry::Vacant(entry) => {
                 let name = entry.key().clone();
 
-                entry.insert(RaidBoss {
+                let boss = RaidBoss {
                     level: name.parse_level().unwrap_or(DEFAULT_BOSS_LEVEL),
                     name: name,
                     image: info.image,
-                    last_seen: info.tweet.created_at,
                     language: info.tweet.language,
+                };
+
+                entry.insert(RaidBossEntry {
+                    boss,
+                    last_seen: info.tweet.created_at,
                 });
             }
         }
