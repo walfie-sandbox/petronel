@@ -27,6 +27,7 @@ struct RaidBossEntry {
     backlog: Backlog<Arc<RaidTweet>>, // TODO: broadcast
 }
 
+#[derive(Debug)]
 enum Event {
     NewRaidInfo(RaidInfo),
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
@@ -47,7 +48,7 @@ impl<T> Future for AsyncResult<T> {
     }
 }
 
-
+#[derive(Clone, Debug)]
 pub struct Petronel(mpsc::UnboundedSender<Event>);
 impl Petronel {
     fn request<T, F>(&self, f: F) -> AsyncResult<T>
