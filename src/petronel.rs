@@ -12,10 +12,11 @@ use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RaidBoss {
     pub name: BossName,
     pub level: BossLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<BossImageUrl>,
     pub language: Language,
 }
@@ -27,6 +28,7 @@ struct RaidBossEntry {
     backlog: Backlog<Arc<RaidTweet>>, // TODO: broadcast
 }
 
+#[derive(Debug)]
 enum Event {
     NewRaidInfo(RaidInfo),
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
@@ -47,7 +49,7 @@ impl<T> Future for AsyncResult<T> {
     }
 }
 
-
+#[derive(Clone, Debug)]
 pub struct Petronel(mpsc::UnboundedSender<Event>);
 impl Petronel {
     fn request<T, F>(&self, f: F) -> AsyncResult<T>
