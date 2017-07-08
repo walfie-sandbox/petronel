@@ -112,7 +112,7 @@ impl Stream for RaidInfoStream {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct BossName(DefaultAtom);
 impl Deref for BossName {
     type Target = DefaultAtom;
@@ -151,7 +151,7 @@ impl BossName {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct BossImageUrl(DefaultAtom);
 impl Deref for BossImageUrl {
     type Target = DefaultAtom;
@@ -186,7 +186,7 @@ pub struct RaidInfo {
     pub image: Option<BossImageUrl>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RaidTweet {
     pub tweet_id: TweetId,
     pub boss_name: BossName,
@@ -206,7 +206,7 @@ struct TweetParts<'a> {
     boss_name: &'a str,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum Language {
     Japanese,
     English,

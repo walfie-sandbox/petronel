@@ -1,13 +1,17 @@
 #[macro_use]
 extern crate error_chain;
+#[macro_use]
+extern crate serde_derive;
 
 extern crate futures;
 extern crate tokio_core;
 extern crate petronel;
 extern crate hyper;
+extern crate percent_encoding;
+extern crate serde_json;
 
-use futures::{Future, IntoFuture, Stream};
-use hyper::header::ContentLength;
+use futures::{Future, Stream};
+use hyper::header;
 use hyper::server::{Http, Request, Response, Service};
 use petronel::{Petronel, Token};
 use petronel::error::*;
@@ -61,34 +65,53 @@ quick_main!(|| -> Result<()> {
 #[derive(Debug, Clone)]
 struct PetronelServer(Petronel);
 
-type StringFuture = Box<Future<Item = String, Error = Error>>;
+#[derive(Serialize)]
+struct JsonError {
+    error: String,
+    cause: Vec<String>,
+}
+
 impl Service for PetronelServer {
     type Request = Request;
     type Response = Response;
     type Error = hyper::Error;
 
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+    type Future = Box<Future<Item = Self::Response, Error = hyper::Error>>;
 
     fn call(&self, req: Request) -> Self::Future {
         use hyper::Method::*;
 
-        let body = match (req.method(), req.path()) {
+        match (req.method(), req.path()) {
             (&Get, "/bosses") => {
-                Box::new(self.0.get_bosses().map(|bosses| format!("{:#?}", bosses))) as StringFuture
+                let resp = self.0
+                    .get_bosses()
+                    .map(|bosses| {
+                        let json = serde_json::to_string(&bosses).unwrap();
+
+                        Response::new()
+                            .with_header(header::ContentLength(json.len() as u64))
+                            .with_header(header::ContentType::json())
+                            .with_body(json)
+                    })
+                    .map_err(|_| hyper::Error::Incomplete);
+
+                Box::new(resp) as Self::Future
             }
             (_, path) => {
-                // TODO: 404
-                let message = format!("Unrecognized path: {}", path);
-                Box::new(Ok(message).into_future()) as StringFuture
-            }
-        };
+                let path = percent_encoding::percent_decode(path.as_bytes()).decode_utf8_lossy();
+                let json = serde_json::to_string(&JsonError {
+                    error: format!("Unrecognized path: {}", path),
+                    cause: vec![],
+                }).unwrap();
 
-        Box::new(
-            body.map(|b| {
-                Response::new()
-                    .with_header(ContentLength(b.len() as u64))
-                    .with_body(b)
-            }).map_err(|_| hyper::Error::Incomplete),
-        )
+                Box::new(futures::future::ok(
+                    Response::new()
+                        .with_status(hyper::StatusCode::NotFound)
+                        .with_header(header::ContentLength(json.len() as u64))
+                        .with_header(header::ContentType::json())
+                        .with_body(json),
+                )) as Self::Future
+            }
+        }
     }
 }

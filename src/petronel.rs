@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RaidBoss {
     pub name: BossName,
     pub level: BossLevel,
