@@ -19,3 +19,4 @@ twitter-stream = "^0.5.3"
 [dev-dependencies]
 percent-encoding = "1.0"
 serde_json = "1.0"
+serde = { version = "1.0", features = ["rc"] }

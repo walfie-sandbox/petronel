@@ -16,6 +16,7 @@ const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 pub struct RaidBoss {
     pub name: BossName,
     pub level: BossLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<BossImageUrl>,
     pub language: Language,
 }

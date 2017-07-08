@@ -1,5 +1,4 @@
 use chrono;
-
 use error::*;
 use futures::{Async, Future, Poll, Stream};
 use futures::future::FlattenStream;
@@ -192,7 +191,9 @@ pub struct RaidTweet {
     pub boss_name: BossName,
     pub raid_id: String,
     pub user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     pub created_at: DateTime,
     pub language: Language,
