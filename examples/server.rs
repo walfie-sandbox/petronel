@@ -11,14 +11,17 @@ extern crate tokio_core;
 extern crate petronel;
 extern crate hyper;
 extern crate percent_encoding;
+extern crate serde;
 extern crate serde_json;
 
-use futures::{Future, Stream};
+use futures::{Future, Sink, Stream};
+use futures::sync::mpsc;
 use hyper::header;
 use hyper::server::{Http, Request, Response, Service};
-use petronel::{Petronel, Token};
+use petronel::{Petronel, Subscriber, Token};
 use petronel::error::*;
 use regex::Regex;
+use serde::Serialize;
 use tokio_core::reactor::Core;
 
 fn env(name: &str) -> Result<String> {
@@ -46,6 +49,7 @@ quick_main!(|| -> Result<()> {
         .chain_err(|| "failed to bind TCP listener")?;
 
     let stream = petronel::raid::RaidInfoStream::with_handle(&core.handle(), &token);
+
     let (petronel, petronel_worker) = Petronel::from_stream(stream, 10);
 
     let petronel = PetronelServer(petronel);
@@ -66,8 +70,29 @@ quick_main!(|| -> Result<()> {
     Ok(())
 });
 
-#[derive(Debug, Clone)]
-struct PetronelServer(Petronel);
+struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
+
+impl<T> Subscriber<T> for Sender
+where
+    T: Serialize,
+{
+    fn send(&mut self, message: &T) {
+        let mut chunk = serde_json::to_string(message).unwrap();
+        println!("Sending: {}", chunk);
+        chunk.push('\n');
+
+        let _ = self.0.start_send(Ok(chunk.into()));
+        let _ = self.0.poll_complete();
+    }
+}
+
+struct PetronelServer(Petronel<u16, Sender>);
+
+impl Clone for PetronelServer {
+    fn clone(&self) -> Self {
+        PetronelServer(self.0.clone())
+    }
+}
 
 #[derive(Serialize)]
 struct JsonError {
@@ -78,6 +103,10 @@ struct JsonError {
 lazy_static! {
     static ref REGEX_BOSS_TWEETS: Regex = Regex::new(
         r"^/bosses/(?P<boss_name>.+)/tweets$"
+    ).unwrap();
+
+    static ref REGEX_BOSS_STREAM: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>.+)/stream$"
     ).unwrap();
 }
 
@@ -111,7 +140,6 @@ impl Service for PetronelServer {
                 .recent_tweets(name)
                 .map(|tweets| {
                     let json = serde_json::to_string(
-                        //&tweets
                         &tweets.into_iter().map(|t| t).collect::<Vec<_>>(),
                     ).unwrap();
 
@@ -123,6 +151,23 @@ impl Service for PetronelServer {
                 .map_err(|_| hyper::Error::Incomplete);
 
             Box::new(resp) as Self::Future
+        } else if let Some(captures) = REGEX_BOSS_STREAM.captures(&path) {
+            let name = captures.name("boss_name").unwrap().as_str();
+
+            let buf_size = 512; // TODO: Set as a constant somewhere
+
+            let (tx, rx) = mpsc::channel(buf_size);
+
+            let id = req.remote_addr().map(|addr| addr.port()).unwrap_or(0);
+
+            self.0.subscribe(name, id, Sender(tx));
+
+            Box::new(futures::future::ok(
+                Response::new()
+                    .with_header(header::TransferEncoding::chunked())
+                    .with_header(header::Connection::keep_alive())
+                    .with_body(rx),
+            )) as Self::Future
         } else {
             let json = serde_json::to_string(&JsonError {
                 error: format!("Unrecognized path: {}", path),

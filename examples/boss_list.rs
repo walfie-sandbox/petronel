@@ -7,7 +7,7 @@ extern crate twitter_stream;
 extern crate petronel;
 
 use futures::{Future, Stream};
-use petronel::{Petronel, Token};
+use petronel::{EmptySubscriber, Petronel, Token};
 use petronel::error::*;
 use std::time::Duration;
 use tokio_core::reactor::{Core, Interval};
@@ -30,7 +30,7 @@ quick_main!(|| -> Result<()> {
 
     let stream = petronel::raid::RaidInfoStream::with_handle(&core.handle(), &token);
 
-    let (client, future) = Petronel::from_stream(stream, 20);
+    let (client, future) = Petronel::<u32, EmptySubscriber<_>>::from_stream(stream, 20);
 
     // Fetch boss list once per 5 seconds
     let interval = Interval::new(Duration::new(5, 0), &core.handle())
