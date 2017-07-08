@@ -4,10 +4,7 @@ pub struct CircularBuffer<T> {
     next_index: usize,
 }
 
-impl<T> CircularBuffer<T>
-where
-    T: Clone,
-{
+impl<T> CircularBuffer<T> {
     pub fn with_capacity(capacity: usize) -> Self {
         CircularBuffer {
             buffer: Vec::with_capacity(capacity),
@@ -27,46 +24,46 @@ where
     pub fn as_unordered_slice(&self) -> &[T] {
         self.buffer.as_slice()
     }
-
-    pub fn snapshot(&self) -> Vec<T> {
-        let (left, right) = self.buffer.split_at(self.next_index);
-
-        let mut items = Vec::with_capacity(self.buffer.len());
-
-        items.extend(right.into_iter().cloned());
-        items.extend(left.into_iter().cloned());
-
-        items
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::fmt::Debug;
+
+    fn unordered_eq<T>(buf: &CircularBuffer<T>, other: Vec<T>)
+    where
+        T: Ord + Clone + Debug + PartialEq,
+    {
+        let mut latest = buf.as_unordered_slice().to_vec();
+        latest.sort();
+
+        assert_eq!(latest, other);
+    }
 
     #[test]
     fn maintain_initial_capacity() {
-        let mut backlog = CircularBuffer::with_capacity(2);
+        let mut buf = CircularBuffer::with_capacity(2);
 
-        backlog.push(1);
-        assert_eq!(backlog.snapshot(), vec![1]);
+        buf.push(1);
+        unordered_eq(&buf, vec![1]);
 
-        backlog.push(2);
-        assert_eq!(backlog.snapshot(), vec![1, 2]);
+        buf.push(2);
+        unordered_eq(&buf, vec![1, 2]);
 
-        backlog.push(3);
-        assert_eq!(backlog.snapshot(), vec![2, 3]);
+        buf.push(3);
+        unordered_eq(&buf, vec![2, 3]);
     }
 
     #[test]
     fn unordered() {
-        let mut backlog = CircularBuffer::with_capacity(4);
+        let mut buf = CircularBuffer::with_capacity(4);
 
         for i in 0..50 {
-            backlog.push(i);
+            buf.push(i);
         }
 
-        let mut latest = backlog.as_unordered_slice().to_vec();
+        let mut latest = buf.as_unordered_slice().to_vec();
         latest.sort();
 
         assert_eq!(latest, (46..50).collect::<Vec<_>>());
@@ -74,12 +71,12 @@ mod test {
 
     #[test]
     fn multiple_overflows() {
-        let mut backlog = CircularBuffer::with_capacity(5);
+        let mut buf = CircularBuffer::with_capacity(5);
 
         for i in 0..100 {
-            backlog.push(i);
+            buf.push(i);
         }
 
-        assert_eq!(backlog.snapshot(), (95..100).collect::<Vec<_>>());
+        unordered_eq(&buf, vec![95, 96, 97, 98, 99]);
     }
 }
