@@ -1,15 +1,15 @@
 #[derive(Clone, Debug, PartialEq)]
-pub struct Backlog<T> {
+pub struct CircularBuffer<T> {
     buffer: Vec<T>,
     next_index: usize,
 }
 
-impl<T> Backlog<T>
+impl<T> CircularBuffer<T>
 where
     T: Clone,
 {
     pub fn with_capacity(capacity: usize) -> Self {
-        Backlog {
+        CircularBuffer {
             buffer: Vec::with_capacity(capacity),
             next_index: 0,
         }
@@ -22,6 +22,10 @@ where
             self.buffer[self.next_index] = item;
         }
         self.next_index = (self.next_index + 1) % self.buffer.capacity();
+    }
+
+    pub fn as_unordered_slice(&self) -> &[T] {
+        self.buffer.as_slice()
     }
 
     pub fn snapshot(&self) -> Vec<T> {
@@ -42,7 +46,7 @@ mod test {
 
     #[test]
     fn maintain_initial_capacity() {
-        let mut backlog = Backlog::with_capacity(2);
+        let mut backlog = CircularBuffer::with_capacity(2);
 
         backlog.push(1);
         assert_eq!(backlog.snapshot(), vec![1]);
@@ -55,8 +59,22 @@ mod test {
     }
 
     #[test]
+    fn unordered() {
+        let mut backlog = CircularBuffer::with_capacity(4);
+
+        for i in 0..50 {
+            backlog.push(i);
+        }
+
+        let mut latest = backlog.as_unordered_slice().to_vec();
+        latest.sort();
+
+        assert_eq!(latest, (46..50).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn multiple_overflows() {
-        let mut backlog = Backlog::with_capacity(5);
+        let mut backlog = CircularBuffer::with_capacity(5);
 
         for i in 0..100 {
             backlog.push(i);

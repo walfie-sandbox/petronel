@@ -93,7 +93,7 @@ impl Service for PetronelServer {
 
         if path == "/bosses" {
             let resp = self.0
-                .get_bosses()
+                .bosses()
                 .map(|bosses| {
                     let json = serde_json::to_string(&bosses).unwrap();
 
@@ -108,7 +108,7 @@ impl Service for PetronelServer {
         } else if let Some(captures) = REGEX_BOSS_TWEETS.captures(&path) {
             let name = captures.name("boss_name").unwrap().as_str();
             let resp = self.0
-                .get_backlog(name)
+                .recent_tweets(name)
                 .map(|tweets| {
                     let json = serde_json::to_string(
                         //&tweets

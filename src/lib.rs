@@ -17,7 +17,7 @@ extern crate twitter_stream;
 pub mod raid;
 pub mod error;
 mod petronel;
-mod backlog;
+mod circular_buffer;
 
 pub use petronel::Petronel;
 pub use twitter_stream::Token;

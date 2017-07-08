@@ -1,5 +1,4 @@
-use backlog::Backlog;
-
+use circular_buffer::CircularBuffer;
 use error::*;
 use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
@@ -25,14 +24,14 @@ pub struct RaidBoss {
 struct RaidBossEntry {
     boss: RaidBoss,
     last_seen: DateTime,
-    backlog: Backlog<Arc<RaidTweet>>, // TODO: broadcast
+    recent_tweets: CircularBuffer<Arc<RaidTweet>>, // TODO: broadcast
 }
 
 #[derive(Debug)]
 enum Event {
     NewRaidInfo(RaidInfo),
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
-    GetBacklog {
+    GetRecentTweets {
         boss_name: BossName,
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
@@ -61,16 +60,16 @@ impl Petronel {
         AsyncResult(rx)
     }
 
-    pub fn get_bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
+    pub fn bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
         self.request(Event::GetBosses)
     }
 
-    pub fn get_backlog<B>(&self, boss_name: B) -> AsyncResult<Vec<Arc<RaidTweet>>>
+    pub fn recent_tweets<B>(&self, boss_name: B) -> AsyncResult<Vec<Arc<RaidTweet>>>
     where
         B: AsRef<str>,
     {
         self.request(|tx| {
-            Event::GetBacklog {
+            Event::GetRecentTweets {
                 boss_name: BossName::new(boss_name),
                 sender: tx,
             }
@@ -84,7 +83,7 @@ pub struct PetronelFuture<S> {
         OrElse<mpsc::UnboundedReceiver<Event>, fn(()) -> Result<Event>, Result<Event>>,
     >,
     bosses: HashMap<BossName, RaidBossEntry>,
-    backlog_size: usize,
+    tweet_history_size: usize,
 }
 
 impl Petronel {
@@ -93,7 +92,7 @@ impl Petronel {
     }
 
     // TODO: Builder
-    pub fn from_stream<S>(stream: S, backlog_size: usize) -> (Self, PetronelFuture<S>)
+    pub fn from_stream<S>(stream: S, tweet_history_size: usize) -> (Self, PetronelFuture<S>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
     {
@@ -105,7 +104,7 @@ impl Petronel {
         let future = PetronelFuture {
             events: stream_events.select(rx),
             bosses: HashMap::new(),
-            backlog_size,
+            tweet_history_size,
         };
 
         (Petronel(tx), future)
@@ -129,11 +128,12 @@ impl<S> PetronelFuture<S> {
                         .collect::<Vec<_>>(),
                 );
             }
-            GetBacklog { boss_name, sender } => {
-                let backlog = self.bosses.get(&boss_name).map_or(
-                    vec![],
-                    |e| e.backlog.snapshot(),
-                );
+            GetRecentTweets { boss_name, sender } => {
+                let backlog = self.bosses.get(&boss_name).map_or(vec![], |e| {
+                    // Returns recent tweets, unsorted. The client is
+                    // expected to do the sorting on their end.
+                    e.recent_tweets.as_unordered_slice().to_vec()
+                });
 
                 let _ = sender.send(backlog);
             }
@@ -147,7 +147,7 @@ impl<S> PetronelFuture<S> {
                 let value = entry.get_mut();
 
                 value.last_seen = info.tweet.created_at;
-                value.backlog.push(Arc::new(info.tweet));
+                value.recent_tweets.push(Arc::new(info.tweet));
 
                 if value.boss.image.is_none() && info.image.is_some() {
                     // TODO: Image hash
@@ -167,10 +167,11 @@ impl<S> PetronelFuture<S> {
                 entry.insert(RaidBossEntry {
                     boss,
                     last_seen: info.tweet.created_at.clone(),
-                    backlog: {
-                        let mut backlog = Backlog::with_capacity(self.backlog_size);
-                        backlog.push(Arc::new(info.tweet));
-                        backlog
+                    recent_tweets: {
+                        let mut recent_tweets =
+                            CircularBuffer::with_capacity(self.tweet_history_size);
+                        recent_tweets.push(Arc::new(info.tweet));
+                        recent_tweets
                     },
                 });
 
