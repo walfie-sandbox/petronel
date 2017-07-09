@@ -70,6 +70,7 @@ quick_main!(|| -> Result<()> {
     Ok(())
 });
 
+#[derive(Clone)]
 struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
 
 impl<T> Subscriber<T> for Sender
