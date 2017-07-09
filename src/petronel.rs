@@ -30,11 +30,11 @@ pub struct RaidBoss {
     pub language: Language,
 }
 
-struct RaidBossEntry<SubId, Sub> {
+struct RaidBossEntry<SubId, Sub, M = Message> {
     boss: RaidBoss,
     last_seen: DateTime,
     recent_tweets: CircularBuffer<Arc<RaidTweet>>,
-    broadcast: Broadcast<SubId, Sub, Message>,
+    broadcast: Broadcast<SubId, Sub, M>,
 }
 
 #[derive(Debug)]
@@ -69,30 +69,31 @@ impl<T> Future for AsyncResult<T> {
 }
 
 #[derive(Debug)]
-pub struct Petronel<SubId, Sub>(
+pub struct Petronel<SubId, Sub, M = Message>(
     mpsc::UnboundedSender<Event<SubId, Sub>>,
     PhantomData<SubId>,
-    PhantomData<Sub>
+    PhantomData<Sub>,
+    PhantomData<M>
 );
 
-impl<SubId, Sub> Clone for Petronel<SubId, Sub> {
+impl<SubId, Sub, M> Clone for Petronel<SubId, Sub, M> {
     fn clone(&self) -> Self {
-        Petronel(self.0.clone(), PhantomData, PhantomData)
+        Petronel(self.0.clone(), PhantomData, PhantomData, PhantomData)
     }
 }
 
 // TODO: Figure out if there is a way to do this without owning `Petronel`
 #[must_use = "Subscriptions are cancelled when they go out of scope"]
-pub struct Subscription<SubId, Sub>
+pub struct Subscription<SubId, Sub, M = Message>
 where
     SubId: Clone,
 {
     id: SubId,
     following: HashSet<BossName>,
-    petronel: Petronel<SubId, Sub>,
+    petronel: Petronel<SubId, Sub, M>,
 }
 
-impl<SubId, Sub> Subscription<SubId, Sub>
+impl<SubId, Sub, M> Subscription<SubId, Sub, M>
 where
     SubId: Clone,
 {
@@ -119,7 +120,7 @@ where
     }
 }
 
-impl<SubId, Sub> Drop for Subscription<SubId, Sub>
+impl<SubId, Sub, M> Drop for Subscription<SubId, Sub, M>
 where
     SubId: Clone,
 {
@@ -135,7 +136,7 @@ where
 }
 
 
-impl<SubId, Sub> Petronel<SubId, Sub> {
+impl<SubId, Sub, M> Petronel<SubId, Sub, M> {
     fn send(&self, event: Event<SubId, Sub>) {
         let _ = mpsc::UnboundedSender::send(&self.0, event);
     }
@@ -149,7 +150,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
         AsyncResult(rx)
     }
 
-    pub fn subscribe(&self, id: SubId, subscriber: Sub) -> Subscription<SubId, Sub>
+    pub fn subscribe(&self, id: SubId, subscriber: Sub) -> Subscription<SubId, Sub, M>
     where
         SubId: Clone,
     {
@@ -200,7 +201,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<S, SubId, Sub> {
+pub struct PetronelFuture<S, SubId, Sub, M> {
     events: Select<
         Map<S, fn(RaidInfo) -> Event<SubId, Sub>>,
         OrElse<
@@ -209,13 +210,13 @@ pub struct PetronelFuture<S, SubId, Sub> {
             Result<Event<SubId, Sub>>,
         >,
     >,
-    bosses: HashMap<BossName, RaidBossEntry<SubId, Sub>>,
+    bosses: HashMap<BossName, RaidBossEntry<SubId, Sub, M>>,
     tweet_history_size: usize,
-    requested_bosses: HashMap<BossName, Broadcast<SubId, Sub, Message>>,
-    subscribers: Broadcast<SubId, Sub, Message>,
+    requested_bosses: HashMap<BossName, Broadcast<SubId, Sub, M>>,
+    subscribers: Broadcast<SubId, Sub, M>,
 }
 
-impl<SubId, Sub> Petronel<SubId, Sub> {
+impl<SubId, Sub, M> Petronel<SubId, Sub, M> {
     fn events_read_error(_: ()) -> Result<Event<SubId, Sub>> {
         Ok(Event::ReadError)
     }
@@ -224,10 +225,11 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
     pub fn from_stream<S>(
         stream: S,
         tweet_history_size: usize,
-    ) -> (Self, PetronelFuture<S, SubId, Sub>)
+    ) -> (Self, PetronelFuture<S, SubId, Sub, M>)
     where
+        M: From<Message> + Clone,
         S: Stream<Item = RaidInfo, Error = Error>,
-        Sub: Subscriber<Message>,
+        Sub: Subscriber<M>,
         SubId: Hash + Eq,
     {
         let (tx, rx) = mpsc::unbounded();
@@ -245,14 +247,15 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
             subscribers: Broadcast::new(),
         };
 
-        (Petronel(tx, PhantomData, PhantomData), future)
+        (Petronel(tx, PhantomData, PhantomData, PhantomData), future)
     }
 }
 
-impl<S, SubId, Sub> PetronelFuture<S, SubId, Sub>
+impl<S, SubId, Sub, M> PetronelFuture<S, SubId, Sub, M>
 where
+    M: From<Message> + Clone,
     SubId: Hash + Eq,
-    Sub: Subscriber<Message> + Clone,
+    Sub: Subscriber<M> + Clone,
 {
     fn handle_event(&mut self, event: Event<SubId, Sub>) {
         use self::Event::*;
@@ -287,7 +290,7 @@ where
                 let _ = sender.send(backlog);
             }
             ReadError => {} // This should never happen
-            Heartbeat => self.subscribers.send(&Message::Heartbeat),
+            Heartbeat => self.subscribers.send(&Message::Heartbeat.into()),
         }
     }
 
@@ -345,7 +348,7 @@ where
                 value.last_seen = info.tweet.created_at;
 
                 let tweet = Arc::new(info.tweet);
-                value.broadcast.send(&Message::Tweet(tweet.clone()));
+                value.broadcast.send(&Message::Tweet(tweet.clone()).into());
                 value.recent_tweets.push(tweet);
 
                 if value.boss.image.is_none() && info.image.is_some() {
@@ -370,7 +373,7 @@ where
                 let last_seen = info.tweet.created_at.clone();
 
                 let tweet = Arc::new(info.tweet);
-                broadcast.send(&Message::Tweet(tweet.clone()));
+                broadcast.send(&Message::Tweet(tweet.clone()).into());
 
                 entry.insert(RaidBossEntry {
                     boss,
@@ -389,11 +392,15 @@ where
     }
 }
 
-impl<S, SubId, Sub> Future for PetronelFuture<S, SubId, Sub>
+impl<S, SubId, Sub, M> Future for PetronelFuture<S, SubId, Sub, M>
 where
-    S: Stream<Item = RaidInfo, Error = Error>,
+    M: From<Message> + Clone,
+    S: Stream<
+        Item = RaidInfo,
+        Error = Error,
+    >,
     SubId: Hash + Eq,
-    Sub: Subscriber<Message> + Clone
+    Sub: Subscriber<M> + Clone,
 {
     type Item = ();
     type Error = Error;
