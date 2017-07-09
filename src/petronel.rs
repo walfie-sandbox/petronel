@@ -228,8 +228,17 @@ where
     fn unsubscribe(&mut self, boss_name: BossName, id: SubId) {
         if let Some(entry) = self.bosses.get_mut(&boss_name) {
             entry.broadcast.unsubscribe(id);
+        } else if let Entry::Occupied(mut entry) = self.requested_bosses.entry(boss_name) {
+            let is_empty = {
+                let broadcast = entry.get_mut();
+                broadcast.unsubscribe(id);
+                broadcast.is_empty()
+            };
+
+            if is_empty {
+                entry.remove();
+            }
         }
-        // TODO: If None, look up temporary broadcast
     }
 
     fn handle_raid_info(&mut self, info: RaidInfo) {
