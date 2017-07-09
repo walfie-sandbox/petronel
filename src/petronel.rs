@@ -15,7 +15,11 @@ use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
-pub type Message = Arc<RaidTweet>;
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum Message {
+    Heartbeat,
+    Tweet(Arc<RaidTweet>),
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RaidBoss {
@@ -48,6 +52,9 @@ enum Event<SubId, Sub> {
         boss_name: BossName,
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
+
+    Heartbeat,
+
     ReadError,
 }
 
@@ -129,12 +136,16 @@ where
 
 
 impl<SubId, Sub> Petronel<SubId, Sub> {
+    fn send(&self, event: Event<SubId, Sub>) {
+        let _ = mpsc::UnboundedSender::send(&self.0, event);
+    }
+
     fn request<T, F>(&self, f: F) -> AsyncResult<T>
     where
         F: FnOnce(oneshot::Sender<T>) -> Event<SubId, Sub>,
     {
         let (tx, rx) = oneshot::channel();
-        let _ = mpsc::UnboundedSender::send(&self.0, f(tx));
+        self.send(f(tx));
         AsyncResult(rx)
     }
 
@@ -156,22 +167,16 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
     }
 
     fn unsubscribe(&self, id: SubId) {
-        let event = Event::Unsubscribe(id);
-        let _ = mpsc::UnboundedSender::send(&self.0, event);
+        self.send(Event::Unsubscribe(id));
     }
 
-    pub fn follow(&self, id: SubId, boss_name: BossName) {
-        let event = Event::Follow { id, boss_name };
-        let _ = mpsc::UnboundedSender::send(&self.0, event);
+    fn follow(&self, id: SubId, boss_name: BossName) {
+        self.send(Event::Follow { id, boss_name });
     }
 
-
-    pub fn unfollow(&self, id: SubId, boss_name: BossName) {
-        let event = Event::Unfollow { id, boss_name };
-        let _ = mpsc::UnboundedSender::send(&self.0, event);
+    fn unfollow(&self, id: SubId, boss_name: BossName) {
+        self.send(Event::Unfollow { id, boss_name });
     }
-
-
 
     pub fn bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
         self.request(Event::GetBosses)
@@ -187,6 +192,10 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
                 sender: tx,
             }
         })
+    }
+
+    pub fn heartbeat(&self) {
+        self.send(Event::Heartbeat);
     }
 }
 
@@ -277,6 +286,11 @@ where
                 let _ = sender.send(backlog);
             }
             ReadError => {} // This should never happen
+            Heartbeat => {
+                for sub in self.subscribers.values_mut() {
+                    sub.send(&Message::Heartbeat)
+                }
+            }
         }
     }
 
@@ -286,7 +300,6 @@ where
     }
 
     fn unsubscribe(&mut self, id: &SubId) {
-        // TODO: Choose ID randomly?
         self.subscribers.remove(id);
     }
 
@@ -327,8 +340,6 @@ where
         }
     }
 
-
-
     fn handle_raid_info(&mut self, info: RaidInfo) {
         match self.bosses.entry(info.tweet.boss_name.clone()) {
             Entry::Occupied(mut entry) => {
@@ -337,7 +348,7 @@ where
                 value.last_seen = info.tweet.created_at;
 
                 let tweet = Arc::new(info.tweet);
-                value.broadcast.send(&tweet);
+                value.broadcast.send(&Message::Tweet(tweet.clone()));
                 value.recent_tweets.push(tweet);
 
                 if value.boss.image.is_none() && info.image.is_some() {
@@ -362,7 +373,7 @@ where
                 let last_seen = info.tweet.created_at.clone();
 
                 let tweet = Arc::new(info.tweet);
-                broadcast.send(&tweet);
+                broadcast.send(&Message::Tweet(tweet.clone()));
 
                 entry.insert(RaidBossEntry {
                     boss,

@@ -18,11 +18,11 @@ use futures::{Future, Poll, Sink, Stream};
 use futures::sync::mpsc;
 use hyper::header;
 use hyper::server::{Http, Request, Response, Service};
-use petronel::{Petronel, Subscriber, Subscription, Token};
+use petronel::{Message, Petronel, Subscriber, Subscription, Token};
 use petronel::error::*;
 use regex::Regex;
-use serde::Serialize;
-use tokio_core::reactor::Core;
+use std::time::Duration;
+use tokio_core::reactor::{Core, Interval};
 
 fn env(name: &str) -> Result<String> {
     ::std::env::var(name).chain_err(|| {
@@ -52,36 +52,44 @@ quick_main!(|| -> Result<()> {
 
     let (petronel, petronel_worker) = Petronel::from_stream(stream, 10);
 
-    let petronel = PetronelServer(petronel);
+    let petronel_server = PetronelServer(petronel.clone());
 
     println!("Listening on {}", bind_address);
 
     let server = listener
         .incoming()
         .for_each(move |(sock, addr)| {
-            Http::new().bind_connection(&handle, sock, addr, petronel.clone());
+            Http::new().bind_connection(&handle, sock, addr, petronel_server.clone());
             Ok(())
         })
         .then(|r| r.chain_err(|| "server failed"));
 
-    core.run(server.join(petronel_worker)).chain_err(
-        || "stream failed",
-    )?;
+    // Send heartbeat every 10 seconds
+    let heartbeat = Interval::new(Duration::new(10, 0), &core.handle())
+        .chain_err(|| "failed to create Interval")?
+        .for_each(move |_| Ok(petronel.heartbeat()))
+        .then(|r| r.chain_err(|| "heartbeat failed"));
+
+    core.run(server.join3(petronel_worker, heartbeat))
+        .chain_err(|| "stream failed")?;
     Ok(())
 });
 
 #[derive(Clone)]
 struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
 
-impl<T> Subscriber<T> for Sender
-where
-    T: Serialize,
-{
-    fn send(&mut self, message: &T) {
-        let mut chunk = serde_json::to_string(message).unwrap();
-        chunk.push('\n');
+impl Subscriber<Message> for Sender {
+    fn send(&mut self, message: &Message) {
+        let chunk = match message {
+            &Message::Heartbeat => vec![b'\n'].into(),
+            other => {
+                let mut bytes = serde_json::to_string(other).unwrap();
+                bytes.push('\n');
+                bytes.into()
+            }
+        };
 
-        let _ = self.0.start_send(Ok(chunk.into()));
+        let _ = self.0.start_send(Ok(chunk));
         let _ = self.0.poll_complete();
     }
 }
@@ -110,8 +118,6 @@ lazy_static! {
     ).unwrap();
 }
 
-// TODO: This isn't actually dropped until something attempts to write
-// to it. Maybe add a heartbeat message.
 struct Body {
     body: hyper::Body,
     _subscription: Option<Subscription<u16, Sender>>,
