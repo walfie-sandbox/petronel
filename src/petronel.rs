@@ -135,6 +135,7 @@ pub struct PetronelFuture<S, SubId, Sub> {
     >,
     bosses: HashMap<BossName, RaidBossEntry<SubId, Sub>>,
     tweet_history_size: usize,
+    requested_bosses: HashMap<BossName, Broadcast<SubId, Sub, Message>>,
 }
 
 impl<SubId, Sub> Petronel<SubId, Sub> {
@@ -161,6 +162,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
             events: stream_events.select(rx),
             bosses: HashMap::new(),
             tweet_history_size,
+            requested_bosses: HashMap::new(),
         };
 
         (Petronel(tx, PhantomData, PhantomData), future)
@@ -206,13 +208,19 @@ where
     }
 
     fn subscribe(&mut self, boss_name: BossName, id: SubId, subscriber: Sub) {
-        match self.bosses.entry(boss_name) {
-            Entry::Occupied(mut entry) => {
-                // TODO: Create subscription handle with custom Drop
-                entry.get_mut().broadcast.subscribe(id, subscriber);
-            }
-            Entry::Vacant(_entry) => {
-                // TODO: Create temporary broadcast
+        if let Some(entry) = self.bosses.get_mut(&boss_name) {
+            // TODO: Create subscription handle with custom Drop
+            entry.broadcast.subscribe(id, subscriber);
+        } else {
+            match self.requested_bosses.entry(boss_name) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().subscribe(id, subscriber);
+                }
+                Entry::Vacant(entry) => {
+                    let mut broadcast = Broadcast::new();
+                    broadcast.subscribe(id, subscriber);
+                    entry.insert(broadcast);
+                }
             }
         }
     }
@@ -243,6 +251,10 @@ where
             Entry::Vacant(entry) => {
                 let name = entry.key().clone();
 
+                let mut broadcast = self.requested_bosses.remove(&name).unwrap_or(
+                    Broadcast::new(),
+                );
+
                 let boss = RaidBoss {
                     level: name.parse_level().unwrap_or(DEFAULT_BOSS_LEVEL),
                     name: name,
@@ -250,16 +262,21 @@ where
                     language: info.tweet.language,
                 };
 
+                let last_seen = info.tweet.created_at.clone();
+
+                let tweet = Arc::new(info.tweet);
+                broadcast.send(&tweet);
+
                 entry.insert(RaidBossEntry {
                     boss,
-                    last_seen: info.tweet.created_at.clone(),
+                    broadcast,
+                    last_seen,
                     recent_tweets: {
                         let mut recent_tweets =
                             CircularBuffer::with_capacity(self.tweet_history_size);
-                        recent_tweets.push(Arc::new(info.tweet));
+                        recent_tweets.push(tweet);
                         recent_tweets
                     },
-                    broadcast: Broadcast::new(),
                 });
 
             }
