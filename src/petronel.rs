@@ -36,18 +36,12 @@ struct RaidBossEntry<SubId, Sub> {
 #[derive(Debug)]
 enum Event<SubId, Sub> {
     NewRaidInfo(RaidInfo),
-    Subscribe {
-        boss_name: BossName,
-        id: SubId,
-        subscriber: Sub,
-    },
-    Unsubscribe { boss_name: BossName, id: SubId },
 
     Follow { id: SubId, boss_name: BossName },
     Unfollow { id: SubId, boss_name: BossName },
 
-    NewSubscribe { id: SubId, subscriber: Sub },
-    NewUnsubscribe(SubId),
+    Subscribe { id: SubId, subscriber: Sub },
+    Unsubscribe(SubId),
 
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
     GetRecentTweets {
@@ -82,14 +76,7 @@ impl<SubId, Sub> Clone for Petronel<SubId, Sub> {
 
 // TODO: Figure out if there is a way to do this without owning `Petronel`
 #[must_use = "Subscriptions are cancelled when they go out of scope"]
-pub struct Subscription<SubId, Sub> {
-    id: Option<SubId>,
-    boss_name: Option<BossName>,
-    petronel: Petronel<SubId, Sub>,
-    subscriber_type: PhantomData<Sub>,
-}
-
-pub struct NewSubscription<SubId, Sub>
+pub struct Subscription<SubId, Sub>
 where
     SubId: Clone,
 {
@@ -98,11 +85,11 @@ where
     petronel: Petronel<SubId, Sub>,
 }
 
-impl<SubId, Sub> NewSubscription<SubId, Sub>
+impl<SubId, Sub> Subscription<SubId, Sub>
 where
     SubId: Clone,
 {
-    fn follow<B>(&mut self, boss_name: B)
+    pub fn follow<B>(&mut self, boss_name: B)
     where
         B: AsRef<str>,
     {
@@ -111,7 +98,7 @@ where
         self.petronel.follow(self.id.clone(), name);
     }
 
-    fn unfollow<B>(&mut self, boss_name: B)
+    pub fn unfollow<B>(&mut self, boss_name: B)
     where
         B: AsRef<str>,
     {
@@ -120,21 +107,12 @@ where
         self.petronel.unfollow(self.id.clone(), name);
     }
 
-    fn unsubscribe(&self) {
-        self.petronel.new_unsubscribe(self.id.clone())
+    pub fn unsubscribe(&self) {
+        self.petronel.unsubscribe(self.id.clone())
     }
 }
 
-impl<SubId, Sub> Drop for Subscription<SubId, Sub> {
-    fn drop(&mut self) {
-        if let (Some(boss_name), Some(id)) = (self.boss_name.take(), self.id.take()) {
-            self.petronel.unsubscribe(boss_name, id);
-        }
-    }
-}
-
-
-impl<SubId, Sub> Drop for NewSubscription<SubId, Sub>
+impl<SubId, Sub> Drop for Subscription<SubId, Sub>
 where
     SubId: Clone,
 {
@@ -160,25 +138,25 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
         AsyncResult(rx)
     }
 
-    fn new_subscribe(&self, id: SubId, subscriber: Sub) -> NewSubscription<SubId, Sub>
+    pub fn subscribe(&self, id: SubId, subscriber: Sub) -> Subscription<SubId, Sub>
     where
         SubId: Clone,
     {
-        let event = Event::NewSubscribe {
+        let event = Event::Subscribe {
             id: id.clone(),
             subscriber,
         };
         let _ = mpsc::UnboundedSender::send(&self.0, event);
 
-        NewSubscription {
+        Subscription {
             id,
             following: HashSet::new(),
             petronel: self.clone(),
         }
     }
 
-    fn new_unsubscribe(&self, id: SubId) {
-        let event = Event::NewUnsubscribe(id);
+    fn unsubscribe(&self, id: SubId) {
+        let event = Event::Unsubscribe(id);
         let _ = mpsc::UnboundedSender::send(&self.0, event);
     }
 
@@ -193,39 +171,6 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
         let _ = mpsc::UnboundedSender::send(&self.0, event);
     }
 
-
-    pub fn subscribe<B>(&self, boss_name: B, id: SubId, subscriber: Sub) -> Subscription<SubId, Sub>
-    where
-        B: AsRef<str>,
-        SubId: Clone,
-    {
-        let boss_name = BossName::new(boss_name);
-
-        let event = Event::Subscribe {
-            boss_name: boss_name.clone(),
-            id: id.clone(),
-            subscriber,
-        };
-        let _ = mpsc::UnboundedSender::send(&self.0, event);
-
-        Subscription {
-            id: Some(id),
-            boss_name: Some(boss_name),
-            petronel: self.clone(),
-            subscriber_type: PhantomData,
-        }
-    }
-
-    pub fn unsubscribe<B>(&self, boss_name: B, id: SubId)
-    where
-        B: AsRef<str>,
-    {
-        let event = Event::Unsubscribe {
-            boss_name: BossName::new(boss_name),
-            id,
-        };
-        let _ = mpsc::UnboundedSender::send(&self.0, event);
-    }
 
 
     pub fn bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
@@ -303,11 +248,11 @@ where
         use self::Event::*;
 
         match event {
-            NewSubscribe { id, subscriber } => {
-                self.new_subscribe(id, subscriber);
+            Subscribe { id, subscriber } => {
+                self.subscribe(id, subscriber);
             }
-            NewUnsubscribe(id) => {
-                self.new_unsubscribe(&id);
+            Unsubscribe(id) => {
+                self.unsubscribe(&id);
             }
             Follow { id, boss_name } => {
                 self.follow(id, boss_name);
@@ -316,16 +261,6 @@ where
                 self.unfollow(id, boss_name);
             }
 
-            Subscribe {
-                boss_name,
-                id,
-                subscriber,
-            } => {
-                self.subscribe(boss_name, id, subscriber);
-            }
-            Unsubscribe { boss_name, id } => {
-                self.unsubscribe(boss_name, id);
-            }
             NewRaidInfo(r) => {
                 self.handle_raid_info(r);
             }
@@ -345,12 +280,12 @@ where
         }
     }
 
-    fn new_subscribe(&mut self, id: SubId, subscriber: Sub) {
+    fn subscribe(&mut self, id: SubId, subscriber: Sub) {
         // TODO: Choose ID randomly?
         self.subscribers.insert(id, subscriber);
     }
 
-    fn new_unsubscribe(&mut self, id: &SubId) {
+    fn unsubscribe(&mut self, id: &SubId) {
         // TODO: Choose ID randomly?
         self.subscribers.remove(id);
     }
@@ -393,39 +328,6 @@ where
     }
 
 
-
-    fn subscribe(&mut self, boss_name: BossName, id: SubId, subscriber: Sub) {
-        if let Some(entry) = self.bosses.get_mut(&boss_name) {
-            entry.broadcast.subscribe(id, subscriber);
-        } else {
-            match self.requested_bosses.entry(boss_name) {
-                Entry::Occupied(mut entry) => {
-                    entry.get_mut().subscribe(id, subscriber);
-                }
-                Entry::Vacant(entry) => {
-                    let mut broadcast = Broadcast::new();
-                    broadcast.subscribe(id, subscriber);
-                    entry.insert(broadcast);
-                }
-            }
-        }
-    }
-
-    fn unsubscribe(&mut self, boss_name: BossName, id: SubId) {
-        if let Some(entry) = self.bosses.get_mut(&boss_name) {
-            entry.broadcast.unsubscribe(id);
-        } else if let Entry::Occupied(mut entry) = self.requested_bosses.entry(boss_name) {
-            let is_empty = {
-                let broadcast = entry.get_mut();
-                broadcast.unsubscribe(id);
-                broadcast.is_empty()
-            };
-
-            if is_empty {
-                entry.remove();
-            }
-        }
-    }
 
     fn handle_raid_info(&mut self, info: RaidInfo) {
         match self.bosses.entry(info.tweet.boss_name.clone()) {

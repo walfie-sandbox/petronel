@@ -188,7 +188,8 @@ impl Service for PetronelServer {
             // TODO: Should this fail instead of returning 0?
             let id = req.remote_addr().map(|addr| addr.port()).unwrap_or(0);
 
-            let subscription = self.0.subscribe(name, id, Sender(sender));
+            let mut subscription = self.0.subscribe(id, Sender(sender));
+            subscription.follow(name);
 
             let body = Body {
                 body: chunks,
