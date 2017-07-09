@@ -11,15 +11,18 @@ extern crate tokio_core;
 extern crate petronel;
 extern crate hyper;
 extern crate percent_encoding;
+extern crate serde;
 extern crate serde_json;
 
-use futures::{Future, Stream};
+use futures::{Future, Poll, Sink, Stream};
+use futures::sync::mpsc;
 use hyper::header;
 use hyper::server::{Http, Request, Response, Service};
-use petronel::{Petronel, Token};
+use petronel::{Message, Petronel, Subscriber, Subscription, Token};
 use petronel::error::*;
 use regex::Regex;
-use tokio_core::reactor::Core;
+use std::time::Duration;
+use tokio_core::reactor::{Core, Interval};
 
 fn env(name: &str) -> Result<String> {
     ::std::env::var(name).chain_err(|| {
@@ -46,28 +49,58 @@ quick_main!(|| -> Result<()> {
         .chain_err(|| "failed to bind TCP listener")?;
 
     let stream = petronel::raid::RaidInfoStream::with_handle(&core.handle(), &token);
+
     let (petronel, petronel_worker) = Petronel::from_stream(stream, 10);
 
-    let petronel = PetronelServer(petronel);
+    let petronel_server = PetronelServer(petronel.clone());
 
     println!("Listening on {}", bind_address);
 
     let server = listener
         .incoming()
         .for_each(move |(sock, addr)| {
-            Http::new().bind_connection(&handle, sock, addr, petronel.clone());
+            Http::new().bind_connection(&handle, sock, addr, petronel_server.clone());
             Ok(())
         })
         .then(|r| r.chain_err(|| "server failed"));
 
-    core.run(server.join(petronel_worker)).chain_err(
-        || "stream failed",
-    )?;
+    // Send heartbeat every 10 seconds
+    let heartbeat = Interval::new(Duration::new(10, 0), &core.handle())
+        .chain_err(|| "failed to create Interval")?
+        .for_each(move |_| Ok(petronel.heartbeat()))
+        .then(|r| r.chain_err(|| "heartbeat failed"));
+
+    core.run(server.join3(petronel_worker, heartbeat))
+        .chain_err(|| "stream failed")?;
     Ok(())
 });
 
-#[derive(Debug, Clone)]
-struct PetronelServer(Petronel);
+#[derive(Clone)]
+struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
+
+impl Subscriber<Message> for Sender {
+    fn send(&mut self, message: &Message) {
+        let chunk = match message {
+            &Message::Heartbeat => vec![b'\n'].into(),
+            other => {
+                let mut bytes = serde_json::to_string(other).unwrap();
+                bytes.push('\n');
+                bytes.into()
+            }
+        };
+
+        let _ = self.0.start_send(Ok(chunk));
+        let _ = self.0.poll_complete();
+    }
+}
+
+struct PetronelServer(Petronel<u16, Sender>);
+
+impl Clone for PetronelServer {
+    fn clone(&self) -> Self {
+        PetronelServer(self.0.clone())
+    }
+}
 
 #[derive(Serialize)]
 struct JsonError {
@@ -79,11 +112,42 @@ lazy_static! {
     static ref REGEX_BOSS_TWEETS: Regex = Regex::new(
         r"^/bosses/(?P<boss_name>.+)/tweets$"
     ).unwrap();
+
+    static ref REGEX_BOSS_STREAM: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>.+)/stream$"
+    ).unwrap();
+}
+
+struct Body {
+    body: hyper::Body,
+    _subscription: Option<Subscription<u16, Sender>>,
+}
+
+impl Stream for Body {
+    type Item = hyper::Chunk;
+    type Error = hyper::Error;
+
+    #[inline]
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.body.poll()
+    }
+}
+
+impl<T> From<T> for Body
+where
+    T: Into<hyper::Body>,
+{
+    fn from(t: T) -> Self {
+        Body {
+            body: t.into(),
+            _subscription: None,
+        }
+    }
 }
 
 impl Service for PetronelServer {
     type Request = Request;
-    type Response = Response;
+    type Response = Response<Body>;
     type Error = hyper::Error;
 
     type Future = Box<Future<Item = Self::Response, Error = hyper::Error>>;
@@ -111,7 +175,6 @@ impl Service for PetronelServer {
                 .recent_tweets(name)
                 .map(|tweets| {
                     let json = serde_json::to_string(
-                        //&tweets
                         &tweets.into_iter().map(|t| t).collect::<Vec<_>>(),
                     ).unwrap();
 
@@ -123,6 +186,28 @@ impl Service for PetronelServer {
                 .map_err(|_| hyper::Error::Incomplete);
 
             Box::new(resp) as Self::Future
+        } else if let Some(captures) = REGEX_BOSS_STREAM.captures(&path) {
+            let name = captures.name("boss_name").unwrap().as_str();
+
+            let (sender, chunks) = hyper::Body::pair();
+
+            // TODO: Should this fail instead of returning 0?
+            let id = req.remote_addr().map(|addr| addr.port()).unwrap_or(0);
+
+            let mut subscription = self.0.subscribe(id, Sender(sender));
+            subscription.follow(name);
+
+            let body = Body {
+                body: chunks,
+                _subscription: Some(subscription),
+            };
+
+            let response = Response::new()
+                .with_header(header::TransferEncoding::chunked())
+                .with_header(header::Connection::keep_alive())
+                .with_body(body);
+
+            Box::new(futures::future::ok(response)) as Self::Future
         } else {
             let json = serde_json::to_string(&JsonError {
                 error: format!("Unrecognized path: {}", path),
