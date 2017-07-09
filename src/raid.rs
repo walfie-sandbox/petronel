@@ -126,27 +126,23 @@ impl fmt::Display for BossName {
     }
 }
 
-impl AsRef<str> for BossName {
-    fn as_ref(&self) -> &str {
-        self
+impl<T> From<T> for BossName
+where
+    T: AsRef<str>,
+{
+    fn from(t: T) -> Self {
+        BossName(t.as_ref().into())
     }
 }
 
 impl BossName {
-    pub fn new<S>(string: S) -> Self
-    where
-        S: AsRef<str>,
-    {
-        BossName(string.as_ref().into())
-    }
-
     pub fn parse_level(&self) -> Option<BossLevel> {
         parse_level(self)
     }
 
     #[inline]
     pub fn as_str(&self) -> &str {
-        self
+        self.0.as_ref()
     }
 }
 
@@ -235,7 +231,7 @@ impl RaidInfo {
 
             let raid_tweet = RaidTweet {
                 tweet_id: tweet.id,
-                boss_name: BossName(parsed.boss_name.into()),
+                boss_name: parsed.boss_name.into(),
                 raid_id: parsed.raid_id.into(),
                 user: tweet.user.screen_name.into(),
                 user_image,

@@ -6,6 +6,7 @@ pub trait Subscriber<T> {
     fn send(&mut self, message: &T);
 }
 
+#[derive(Clone, Debug)]
 pub struct EmptySubscriber<T>(PhantomData<T>);
 impl<T> Subscriber<T> for EmptySubscriber<T> {
     fn send(&mut self, _message: &T) {}

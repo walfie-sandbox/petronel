@@ -98,18 +98,18 @@ where
 {
     pub fn follow<B>(&mut self, boss_name: B)
     where
-        B: AsRef<str>,
+        B: Into<BossName>,
     {
-        let name = BossName::new(boss_name);
+        let name = boss_name.into();
         self.following.insert(name.clone());
         self.petronel.follow(self.id.clone(), name);
     }
 
     pub fn unfollow<B>(&mut self, boss_name: B)
     where
-        B: AsRef<str>,
+        B: Into<BossName>,
     {
-        let name = BossName::new(boss_name);
+        let name = boss_name.into();
         self.following.remove(&name);
         self.petronel.unfollow(self.id.clone(), name);
     }
@@ -184,11 +184,11 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
 
     pub fn recent_tweets<B>(&self, boss_name: B) -> AsyncResult<Vec<Arc<RaidTweet>>>
     where
-        B: AsRef<str>,
+        B: Into<BossName>,
     {
         self.request(|tx| {
             Event::GetRecentTweets {
-                boss_name: BossName::new(boss_name),
+                boss_name: boss_name.into(),
                 sender: tx,
             }
         })
