@@ -14,11 +14,11 @@ extern crate percent_encoding;
 extern crate serde;
 extern crate serde_json;
 
-use futures::{Future, Sink, Stream};
+use futures::{Future, Poll, Sink, Stream};
 use futures::sync::mpsc;
 use hyper::header;
 use hyper::server::{Http, Request, Response, Service};
-use petronel::{Petronel, Subscriber, Token};
+use petronel::{Petronel, Subscriber, Subscription, Token};
 use petronel::error::*;
 use regex::Regex;
 use serde::Serialize;
@@ -78,7 +78,6 @@ where
 {
     fn send(&mut self, message: &T) {
         let mut chunk = serde_json::to_string(message).unwrap();
-        println!("Sending: {}", chunk);
         chunk.push('\n');
 
         let _ = self.0.start_send(Ok(chunk.into()));
@@ -110,9 +109,38 @@ lazy_static! {
     ).unwrap();
 }
 
+// TODO: This isn't actually dropped until something attempts to write
+// to it. Maybe add a heartbeat message.
+struct Body {
+    body: hyper::Body,
+    _subscription: Option<Subscription<u16, Sender>>,
+}
+
+impl Stream for Body {
+    type Item = hyper::Chunk;
+    type Error = hyper::Error;
+
+    #[inline]
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.body.poll()
+    }
+}
+
+impl<T> From<T> for Body
+where
+    T: Into<hyper::Body>,
+{
+    fn from(t: T) -> Self {
+        Body {
+            body: t.into(),
+            _subscription: None,
+        }
+    }
+}
+
 impl Service for PetronelServer {
     type Request = Request;
-    type Response = Response;
+    type Response = Response<Body>;
     type Error = hyper::Error;
 
     type Future = Box<Future<Item = Self::Response, Error = hyper::Error>>;
@@ -154,20 +182,24 @@ impl Service for PetronelServer {
         } else if let Some(captures) = REGEX_BOSS_STREAM.captures(&path) {
             let name = captures.name("boss_name").unwrap().as_str();
 
-            let buf_size = 512; // TODO: Set as a constant somewhere
+            let (sender, chunks) = hyper::Body::pair();
 
-            let (tx, rx) = mpsc::channel(buf_size);
-
+            // TODO: Should this fail instead of returning 0?
             let id = req.remote_addr().map(|addr| addr.port()).unwrap_or(0);
 
-            self.0.subscribe(name, id, Sender(tx));
+            let subscription = self.0.subscribe(name, id, Sender(sender));
 
-            Box::new(futures::future::ok(
-                Response::new()
-                    .with_header(header::TransferEncoding::chunked())
-                    .with_header(header::Connection::keep_alive())
-                    .with_body(rx),
-            )) as Self::Future
+            let body = Body {
+                body: chunks,
+                _subscription: Some(subscription),
+            };
+
+            let response = Response::new()
+                .with_header(header::TransferEncoding::chunked())
+                .with_header(header::Connection::keep_alive())
+                .with_body(body);
+
+            Box::new(futures::future::ok(response)) as Self::Future
         } else {
             let json = serde_json::to_string(&JsonError {
                 error: format!("Unrecognized path: {}", path),

@@ -73,6 +73,23 @@ impl<SubId, Sub> Clone for Petronel<SubId, Sub> {
     }
 }
 
+// TODO: Figure out if there is a way to do this without owning `Petronel`
+#[must_use = "Subscriptions are cancelled when they go out of scope"]
+pub struct Subscription<SubId, Sub> {
+    id: Option<SubId>,
+    boss_name: Option<BossName>,
+    petronel: Petronel<SubId, Sub>,
+    subscriber_type: PhantomData<Sub>,
+}
+
+impl<SubId, Sub> Drop for Subscription<SubId, Sub> {
+    fn drop(&mut self) {
+        if let (Some(boss_name), Some(id)) = (self.boss_name.take(), self.id.take()) {
+            self.petronel.unsubscribe(boss_name, id);
+        }
+    }
+}
+
 impl<SubId, Sub> Petronel<SubId, Sub> {
     fn request<T, F>(&self, f: F) -> AsyncResult<T>
     where
@@ -83,16 +100,26 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
         AsyncResult(rx)
     }
 
-    pub fn subscribe<B>(&self, boss_name: B, id: SubId, subscriber: Sub)
+    pub fn subscribe<B>(&self, boss_name: B, id: SubId, subscriber: Sub) -> Subscription<SubId, Sub>
     where
         B: AsRef<str>,
+        SubId: Clone,
     {
+        let boss_name = BossName::new(boss_name);
+
         let event = Event::Subscribe {
-            boss_name: BossName::new(boss_name),
-            id,
+            boss_name: boss_name.clone(),
+            id: id.clone(),
             subscriber,
         };
         let _ = mpsc::UnboundedSender::send(&self.0, event);
+
+        Subscription {
+            id: Some(id),
+            boss_name: Some(boss_name),
+            petronel: self.clone(),
+            subscriber_type: PhantomData,
+        }
     }
 
     pub fn unsubscribe<B>(&self, boss_name: B, id: SubId)
@@ -124,6 +151,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
     }
 }
 
+#[must_use = "futures do nothing unless polled"]
 pub struct PetronelFuture<S, SubId, Sub> {
     events: Select<
         Map<S, fn(RaidInfo) -> Event<SubId, Sub>>,
@@ -209,7 +237,6 @@ where
 
     fn subscribe(&mut self, boss_name: BossName, id: SubId, subscriber: Sub) {
         if let Some(entry) = self.bosses.get_mut(&boss_name) {
-            // TODO: Create subscription handle with custom Drop
             entry.broadcast.subscribe(id, subscriber);
         } else {
             match self.requested_bosses.entry(boss_name) {
