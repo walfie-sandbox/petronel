@@ -18,7 +18,7 @@ pub struct Broadcast<Id, S, T> {
 
 impl<Id, S, T> Broadcast<Id, S, T>
 where
-    Id: Ord + Hash,
+    Id: Eq + Hash,
     S: Subscriber<T>,
     T: Clone,
 {
@@ -32,18 +32,22 @@ where
 
 impl<Id, S, T> Broadcast<Id, S, T>
 where
-    Id: Ord + Hash,
+    Id: Eq + Hash,
 {
     pub fn is_empty(&self) -> bool {
         self.subscribers.is_empty()
+    }
+
+    pub fn get(&self, id: &Id) -> Option<&S> {
+        self.subscribers.get(id)
     }
 
     pub fn subscribe(&mut self, id: Id, subscriber: S) -> Option<S> {
         self.subscribers.insert(id, subscriber)
     }
 
-    pub fn unsubscribe(&mut self, id: Id) -> Option<S> {
-        self.subscribers.remove(&id)
+    pub fn unsubscribe(&mut self, id: &Id) -> Option<S> {
+        self.subscribers.remove(id)
     }
 
     pub fn send(&mut self, message: &T)

@@ -212,7 +212,7 @@ pub struct PetronelFuture<S, SubId, Sub> {
     bosses: HashMap<BossName, RaidBossEntry<SubId, Sub>>,
     tweet_history_size: usize,
     requested_bosses: HashMap<BossName, Broadcast<SubId, Sub, Message>>,
-    subscribers: HashMap<SubId, Sub>,
+    subscribers: Broadcast<SubId, Sub, Message>,
 }
 
 impl<SubId, Sub> Petronel<SubId, Sub> {
@@ -227,6 +227,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
     ) -> (Self, PetronelFuture<S, SubId, Sub>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
+        Sub: Subscriber<Message>,
         SubId: Hash + Eq,
     {
         let (tx, rx) = mpsc::unbounded();
@@ -241,7 +242,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
             bosses: HashMap::new(),
             tweet_history_size,
             requested_bosses: HashMap::new(),
-            subscribers: HashMap::new(),
+            subscribers: Broadcast::new(),
         };
 
         (Petronel(tx, PhantomData, PhantomData), future)
@@ -250,7 +251,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
 
 impl<S, SubId, Sub> PetronelFuture<S, SubId, Sub>
 where
-    SubId: Hash + Ord,
+    SubId: Hash + Eq,
     Sub: Subscriber<Message> + Clone,
 {
     fn handle_event(&mut self, event: Event<SubId, Sub>) {
@@ -267,7 +268,7 @@ where
                 self.follow(id, boss_name);
             }
             Unfollow { id, boss_name } => {
-                self.unfollow(id, boss_name);
+                self.unfollow(&id, boss_name);
             }
 
             NewRaidInfo(r) => {
@@ -286,21 +287,17 @@ where
                 let _ = sender.send(backlog);
             }
             ReadError => {} // This should never happen
-            Heartbeat => {
-                for sub in self.subscribers.values_mut() {
-                    sub.send(&Message::Heartbeat)
-                }
-            }
+            Heartbeat => self.subscribers.send(&Message::Heartbeat),
         }
     }
 
     fn subscribe(&mut self, id: SubId, subscriber: Sub) {
         // TODO: Choose ID randomly?
-        self.subscribers.insert(id, subscriber);
+        self.subscribers.subscribe(id, subscriber);
     }
 
     fn unsubscribe(&mut self, id: &SubId) {
-        self.subscribers.remove(id);
+        self.subscribers.unsubscribe(id);
     }
 
     fn follow(&mut self, id: SubId, boss_name: BossName) {
@@ -324,13 +321,13 @@ where
         }
     }
 
-    fn unfollow(&mut self, id: SubId, boss_name: BossName) {
+    fn unfollow(&mut self, id: &SubId, boss_name: BossName) {
         if let Some(entry) = self.bosses.get_mut(&boss_name) {
-            entry.broadcast.unsubscribe(id);
+            entry.broadcast.unsubscribe(&id);
         } else if let Entry::Occupied(mut entry) = self.requested_bosses.entry(boss_name) {
             let is_empty = {
                 let broadcast = entry.get_mut();
-                broadcast.unsubscribe(id);
+                broadcast.unsubscribe(&id);
                 broadcast.is_empty()
             };
 
@@ -395,7 +392,7 @@ where
 impl<S, SubId, Sub> Future for PetronelFuture<S, SubId, Sub>
 where
     S: Stream<Item = RaidInfo, Error = Error>,
-    SubId: Hash + Ord,
+    SubId: Hash + Eq,
     Sub: Subscriber<Message> + Clone
 {
     type Item = ();
