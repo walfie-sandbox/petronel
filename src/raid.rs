@@ -1,21 +1,13 @@
-use chrono;
 use error::*;
 use futures::{Async, Future, Poll, Stream};
 use futures::future::FlattenStream;
 use hyper;
+use model::{BossImageUrl, Language, RaidTweet};
 use regex::Regex;
-use std::fmt;
-use std::ops::Deref;
-use string_cache::DefaultAtom;
 use tokio_core::reactor::Handle;
 use twitter_stream::{FutureTwitterStream, Token, TwitterStreamBuilder};
 use twitter_stream::message::StreamMessage;
 use twitter_stream::message::Tweet;
-
-pub type DateTime = chrono::DateTime<chrono::Utc>;
-pub type TweetId = u64;
-pub type RaidId = String;
-pub type BossLevel = i16;
 
 const GRANBLUE_APP_SOURCE: &'static str =
 r#"<a href="http://granbluefantasy.jp/" rel="nofollow">グランブルー ファンタジー</a>"#;
@@ -35,10 +27,6 @@ lazy_static! {
 
     static ref REGEX_IMAGE_URL: Regex = Regex::new("^https?://[^ ]+$")
         .expect("invalid image URL regex");
-
-    static ref REGEX_BOSS_NAME: Regex = Regex::new("\
-        Lv(?:l )?(?P<level>[0-9]+) .*\
-    ").expect("invalid boss name regex");
 }
 
 #[must_use = "streams do nothing unless polled"]
@@ -111,90 +99,6 @@ impl Stream for RaidInfoStream {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
-pub struct BossName(DefaultAtom);
-impl Deref for BossName {
-    type Target = DefaultAtom;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl fmt::Display for BossName {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.deref().fmt(f)
-    }
-}
-
-impl<T> From<T> for BossName
-where
-    T: AsRef<str>,
-{
-    fn from(t: T) -> Self {
-        BossName(t.as_ref().into())
-    }
-}
-
-impl BossName {
-    pub fn parse_level(&self) -> Option<BossLevel> {
-        parse_level(self)
-    }
-
-    #[inline]
-    pub fn as_str(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
-pub struct BossImageUrl(DefaultAtom);
-impl Deref for BossImageUrl {
-    type Target = DefaultAtom;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl BossImageUrl {
-    #[inline]
-    pub fn as_str(&self) -> &str {
-        self
-    }
-}
-
-impl fmt::Display for BossImageUrl {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.deref().fmt(f)
-    }
-}
-
-impl AsRef<str> for BossImageUrl {
-    fn as_ref(&self) -> &str {
-        self
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct RaidInfo {
-    pub tweet: RaidTweet,
-    pub image: Option<BossImageUrl>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct RaidTweet {
-    pub tweet_id: TweetId,
-    pub boss_name: BossName,
-    pub raid_id: String,
-    pub user: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_image: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    pub created_at: DateTime,
-    pub language: Language,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 struct TweetParts<'a> {
     language: Language,
@@ -203,11 +107,10 @@ struct TweetParts<'a> {
     boss_name: &'a str,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-pub enum Language {
-    Japanese,
-    English,
-    Other,
+#[derive(Clone, Debug, PartialEq)]
+pub struct RaidInfo {
+    pub tweet: RaidTweet,
+    pub image: Option<BossImageUrl>,
 }
 
 impl RaidInfo {
@@ -241,7 +144,7 @@ impl RaidInfo {
             };
 
             let image = tweet.entities.media.and_then(|mut media| {
-                media.pop().map(|m| BossImageUrl(m.media_url_https.into()))
+                media.pop().map(|m| m.media_url_https.into())
             });
 
             RaidInfo {
@@ -288,15 +191,6 @@ fn parse_text<'a>(tweet_text: &'a str) -> Option<TweetParts<'a>> {
             None
         })
 }
-
-fn parse_level(name: &str) -> Option<BossLevel> {
-    REGEX_BOSS_NAME.captures(name).and_then(|c| {
-        c.name("level").and_then(
-            |l| l.as_str().parse::<BossLevel>().ok(),
-        )
-    })
-}
-
 
 #[cfg(test)]
 impl<'a> TweetParts<'a> {

@@ -5,7 +5,8 @@ use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use futures::unsync::oneshot;
-use raid::{BossImageUrl, BossLevel, BossName, DateTime, Language, RaidInfo, RaidTweet};
+use model::{BossLevel, BossName, DateTime, Message, RaidBoss, RaidTweet};
+use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
@@ -14,21 +15,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum Message {
-    Heartbeat,
-    Tweet(Arc<RaidTweet>),
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct RaidBoss {
-    pub name: BossName,
-    pub level: BossLevel,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image: Option<BossImageUrl>,
-    pub language: Language,
-}
 
 struct RaidBossEntry<SubId, Sub, M = Message> {
     boss: RaidBoss,
