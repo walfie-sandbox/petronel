@@ -80,6 +80,7 @@ quick_main!(|| -> Result<()> {
 struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
 
 impl Subscriber for Sender {
+    type Id = u16;
     type Item = Message;
 
     fn send(&mut self, message: &Message) {
@@ -97,7 +98,7 @@ impl Subscriber for Sender {
     }
 }
 
-struct PetronelServer(Petronel<u16, Sender>);
+struct PetronelServer(Petronel<Sender>);
 
 impl Clone for PetronelServer {
     fn clone(&self) -> Self {
@@ -123,7 +124,7 @@ lazy_static! {
 
 struct Body {
     body: hyper::Body,
-    _subscription: Option<Subscription<u16, Sender>>,
+    _subscription: Option<Subscription<Sender>>,
 }
 
 impl Stream for Body {

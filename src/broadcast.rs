@@ -1,53 +1,59 @@
+use model::Message;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
 pub trait Subscriber {
+    type Id;
     type Item;
 
     fn send(&mut self, message: &Self::Item);
 }
 
 #[derive(Clone, Debug)]
-pub struct EmptySubscriber<T = ::model::Message>(PhantomData<T>);
-impl<T> Subscriber for EmptySubscriber<T> {
+pub struct EmptySubscriber<Id = (), T = Message>(PhantomData<Id>, PhantomData<T>);
+impl<Id, T> Subscriber for EmptySubscriber<Id, T> {
+    type Id = Id;
     type Item = T;
 
     fn send(&mut self, _message: &T) {}
 }
 
-pub struct Broadcast<Id, S> {
-    subscribers: HashMap<Id, S>,
+pub struct Broadcast<S>
+where
+    S: Subscriber,
+{
+    subscribers: HashMap<S::Id, S>,
 }
 
-impl<Id, S> Broadcast<Id, S>
+impl<S> Broadcast<S>
 where
-    Id: Eq + Hash,
     S: Subscriber,
+    S::Id: Eq + Hash,
 {
     pub fn new() -> Self {
         Broadcast { subscribers: HashMap::new() }
     }
 }
 
-impl<Id, S> Broadcast<Id, S>
+impl<S> Broadcast<S>
 where
-    Id: Eq + Hash,
     S: Subscriber,
+    S::Id: Eq + Hash,
 {
     pub fn is_empty(&self) -> bool {
         self.subscribers.is_empty()
     }
 
-    pub fn get(&self, id: &Id) -> Option<&S> {
+    pub fn get(&self, id: &S::Id) -> Option<&S> {
         self.subscribers.get(id)
     }
 
-    pub fn subscribe(&mut self, id: Id, subscriber: S) -> Option<S> {
+    pub fn subscribe(&mut self, id: S::Id, subscriber: S) -> Option<S> {
         self.subscribers.insert(id, subscriber)
     }
 
-    pub fn unsubscribe(&mut self, id: &Id) -> Option<S> {
+    pub fn unsubscribe(&mut self, id: &S::Id) -> Option<S> {
         self.subscribers.remove(id)
     }
 
