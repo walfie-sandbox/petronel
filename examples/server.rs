@@ -83,7 +83,7 @@ impl Subscriber for Sender {
     type Id = u16;
     type Item = Message;
 
-    fn send(&mut self, message: &Message) {
+    fn send(&mut self, message: &Message) -> std::result::Result<(), ()> {
         let chunk = match message {
             &Message::Heartbeat => vec![b'\n'].into(),
             other => {
@@ -93,8 +93,11 @@ impl Subscriber for Sender {
             }
         };
 
-        let _ = self.0.start_send(Ok(chunk));
-        let _ = self.0.poll_complete();
+        self.0
+            .start_send(Ok(chunk))
+            .and_then(|_| self.0.poll_complete())
+            .map(|_| ())
+            .map_err(|_| ())
     }
 }
 

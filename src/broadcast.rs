@@ -7,7 +7,7 @@ pub trait Subscriber {
     type Id;
     type Item;
 
-    fn send(&mut self, message: &Self::Item);
+    fn send(&mut self, message: &Self::Item) -> Result<(), ()>;
 }
 
 #[derive(Clone, Debug)]
@@ -16,7 +16,9 @@ impl<Id, T> Subscriber for EmptySubscriber<Id, T> {
     type Id = Id;
     type Item = T;
 
-    fn send(&mut self, _message: &T) {}
+    fn send(&mut self, _message: &T) -> Result<(), ()> {
+        Ok(())
+    }
 }
 
 pub struct Broadcast<S>
@@ -58,8 +60,9 @@ where
     }
 
     pub fn send(&mut self, message: &S::Item) {
-        for subscriber in self.subscribers.values_mut() {
-            subscriber.send(message)
-        }
+        // Remove any subscribers that return an error
+        self.subscribers.retain(|_, subscriber| {
+            subscriber.send(message).is_ok()
+        })
     }
 }
