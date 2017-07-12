@@ -2,38 +2,38 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-pub trait Subscriber<T> {
-    fn send(&mut self, message: &T);
+pub trait Subscriber {
+    type Item;
+
+    fn send(&mut self, message: &Self::Item);
 }
 
 #[derive(Clone, Debug)]
-pub struct EmptySubscriber<T>(PhantomData<T>);
-impl<T> Subscriber<T> for EmptySubscriber<T> {
+pub struct EmptySubscriber<T = ::model::Message>(PhantomData<T>);
+impl<T> Subscriber for EmptySubscriber<T> {
+    type Item = T;
+
     fn send(&mut self, _message: &T) {}
 }
 
-pub struct Broadcast<Id, S, T> {
+pub struct Broadcast<Id, S> {
     subscribers: HashMap<Id, S>,
-    message_type: PhantomData<T>,
 }
 
-impl<Id, S, T> Broadcast<Id, S, T>
+impl<Id, S> Broadcast<Id, S>
 where
     Id: Eq + Hash,
-    S: Subscriber<T>,
-    T: Clone,
+    S: Subscriber,
 {
     pub fn new() -> Self {
-        Broadcast {
-            subscribers: HashMap::new(),
-            message_type: PhantomData,
-        }
+        Broadcast { subscribers: HashMap::new() }
     }
 }
 
-impl<Id, S, T> Broadcast<Id, S, T>
+impl<Id, S> Broadcast<Id, S>
 where
     Id: Eq + Hash,
+    S: Subscriber,
 {
     pub fn is_empty(&self) -> bool {
         self.subscribers.is_empty()
@@ -51,10 +51,7 @@ where
         self.subscribers.remove(id)
     }
 
-    pub fn send(&mut self, message: &T)
-    where
-        S: Subscriber<T>,
-    {
+    pub fn send(&mut self, message: &S::Item) {
         for subscriber in self.subscribers.values_mut() {
             subscriber.send(message)
         }

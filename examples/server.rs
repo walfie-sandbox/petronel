@@ -79,7 +79,9 @@ quick_main!(|| -> Result<()> {
 #[derive(Clone)]
 struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
 
-impl Subscriber<Message> for Sender {
+impl Subscriber for Sender {
+    type Item = Message;
+
     fn send(&mut self, message: &Message) {
         let chunk = match message {
             &Message::Heartbeat => vec![b'\n'].into(),
