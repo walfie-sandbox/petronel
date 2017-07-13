@@ -11,32 +11,27 @@ use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
 use std::iter::FromIterator;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
-struct RaidBossEntry<Sub>
-where
-    Sub: Subscriber,
-{
+struct RaidBossEntry<SubId, Sub> {
     boss: RaidBoss,
     last_seen: DateTime,
     recent_tweets: CircularBuffer<Arc<RaidTweet>>,
-    broadcast: Broadcast<Sub>,
+    broadcast: Broadcast<SubId, Sub>,
 }
 
 #[derive(Debug)]
-enum Event<Sub>
-where
-    Sub: Subscriber,
-{
+enum Event<SubId, Sub> {
     NewRaidInfo(RaidInfo),
 
-    Follow { id: Sub::Id, boss_name: BossName },
-    Unfollow { id: Sub::Id, boss_name: BossName },
+    Follow { id: SubId, boss_name: BossName },
+    Unfollow { id: SubId, boss_name: BossName },
 
-    Subscribe { id: Sub::Id, subscriber: Sub },
-    Unsubscribe(Sub::Id),
+    Subscribe { id: SubId, subscriber: Sub },
+    Unsubscribe(SubId),
 
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
     GetRecentTweets {
@@ -59,35 +54,33 @@ impl<T> Future for AsyncResult<T> {
     }
 }
 
-pub struct Petronel<Sub>(mpsc::UnboundedSender<Event<Sub>>)
-where
-    Sub: Subscriber;
+#[derive(Debug)]
+pub struct Petronel<SubId, Sub>(
+    mpsc::UnboundedSender<Event<SubId, Sub>>,
+    PhantomData<SubId>,
+    PhantomData<Sub>
+);
 
-impl<Sub> Clone for Petronel<Sub>
-where
-    Sub: Subscriber,
-{
+impl<SubId, Sub> Clone for Petronel<SubId, Sub> {
     fn clone(&self) -> Self {
-        Petronel(self.0.clone())
+        Petronel(self.0.clone(), PhantomData, PhantomData)
     }
 }
 
 // TODO: Figure out if there is a way to do this without owning `Petronel`
 #[must_use = "Subscriptions are cancelled when they go out of scope"]
-pub struct Subscription<Sub>
+pub struct Subscription<SubId, Sub>
 where
-    Sub: Subscriber,
-    Sub::Id: Clone,
+    SubId: Clone,
 {
-    id: Sub::Id,
+    id: SubId,
     following: HashSet<BossName>,
-    petronel: Petronel<Sub>,
+    petronel: Petronel<SubId, Sub>,
 }
 
-impl<Sub> Subscription<Sub>
+impl<SubId, Sub> Subscription<SubId, Sub>
 where
-    Sub: Subscriber,
-    Sub::Id: Clone,
+    SubId: Clone,
 {
     pub fn follow<B>(&mut self, boss_name: B)
     where
@@ -112,10 +105,9 @@ where
     }
 }
 
-impl<Sub> Drop for Subscription<Sub>
+impl<SubId, Sub> Drop for Subscription<SubId, Sub>
 where
-    Sub: Subscriber,
-    Sub::Id: Clone,
+    SubId: Clone,
 {
     fn drop(&mut self) {
         let mut following = ::std::mem::replace(&mut self.following, HashSet::with_capacity(0));
@@ -129,26 +121,23 @@ where
 }
 
 
-impl<Sub> Petronel<Sub>
-where
-    Sub: Subscriber,
-{
-    fn send(&self, event: Event<Sub>) {
+impl<SubId, Sub> Petronel<SubId, Sub> {
+    fn send(&self, event: Event<SubId, Sub>) {
         let _ = mpsc::UnboundedSender::send(&self.0, event);
     }
 
     fn request<T, F>(&self, f: F) -> AsyncResult<T>
     where
-        F: FnOnce(oneshot::Sender<T>) -> Event<Sub>,
+        F: FnOnce(oneshot::Sender<T>) -> Event<SubId, Sub>,
     {
         let (tx, rx) = oneshot::channel();
         self.send(f(tx));
         AsyncResult(rx)
     }
 
-    pub fn subscribe(&self, id: Sub::Id, subscriber: Sub) -> Subscription<Sub>
+    pub fn subscribe(&self, id: SubId, subscriber: Sub) -> Subscription<SubId, Sub>
     where
-        Sub::Id: Clone,
+        SubId: Clone,
     {
         let event = Event::Subscribe {
             id: id.clone(),
@@ -163,15 +152,15 @@ where
         }
     }
 
-    fn unsubscribe(&self, id: Sub::Id) {
+    fn unsubscribe(&self, id: SubId) {
         self.send(Event::Unsubscribe(id));
     }
 
-    fn follow(&self, id: Sub::Id, boss_name: BossName) {
+    fn follow(&self, id: SubId, boss_name: BossName) {
         self.send(Event::Follow { id, boss_name });
     }
 
-    fn unfollow(&self, id: Sub::Id, boss_name: BossName) {
+    fn unfollow(&self, id: SubId, boss_name: BossName) {
         self.send(Event::Unfollow { id, boss_name });
     }
 
@@ -197,44 +186,43 @@ where
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<S, Sub>
-where
-    Sub: Subscriber,
-{
+pub struct PetronelFuture<S, SubId, Sub> {
     events: Select<
-        Map<S, fn(RaidInfo) -> Event<Sub>>,
+        Map<S, fn(RaidInfo) -> Event<SubId, Sub>>,
         OrElse<
-            mpsc::UnboundedReceiver<Event<Sub>>,
-            fn(()) -> Result<Event<Sub>>,
-            Result<Event<Sub>>,
+            mpsc::UnboundedReceiver<Event<SubId, Sub>>,
+            fn(()) -> Result<Event<SubId, Sub>>,
+            Result<Event<SubId, Sub>>,
         >,
     >,
-    bosses: HashMap<BossName, RaidBossEntry<Sub>>,
+    bosses: HashMap<BossName, RaidBossEntry<SubId, Sub>>,
     tweet_history_size: usize,
-    requested_bosses: HashMap<BossName, Broadcast<Sub>>,
-    subscribers: Broadcast<Sub>,
+    requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
+    subscribers: Broadcast<SubId, Sub>,
 }
 
-impl<Sub> Petronel<Sub>
-where
-    Sub: Subscriber,
-{
-    fn events_read_error(_: ()) -> Result<Event<Sub>> {
+impl<SubId, Sub> Petronel<SubId, Sub> {
+    fn events_read_error(_: ()) -> Result<Event<SubId, Sub>> {
         Ok(Event::ReadError)
     }
 
     // TODO: Builder
-    pub fn from_stream<S>(stream: S, tweet_history_size: usize) -> (Self, PetronelFuture<S, Sub>)
+    pub fn from_stream<S>(
+        stream: S,
+        tweet_history_size: usize,
+    ) -> (Self, PetronelFuture<S, SubId, Sub>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
         Sub: Subscriber,
-        Sub::Id: Hash + Eq,
         Sub::Item: From<Message> + Clone,
+        SubId: Hash + Eq,
     {
         let (tx, rx) = mpsc::unbounded();
 
-        let stream_events = stream.map(Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub>);
-        let rx = rx.or_else(Self::events_read_error as fn(()) -> Result<Event<Sub>>);
+        let stream_events = stream.map(Event::NewRaidInfo as fn(RaidInfo) -> Event<SubId, Sub>);
+        let rx = rx.or_else(
+            Self::events_read_error as fn(()) -> Result<Event<SubId, Sub>>,
+        );
 
         let future = PetronelFuture {
             events: stream_events.select(rx),
@@ -244,17 +232,17 @@ where
             subscribers: Broadcast::new(),
         };
 
-        (Petronel(tx), future)
+        (Petronel(tx, PhantomData, PhantomData), future)
     }
 }
 
-impl<S, Sub> PetronelFuture<S, Sub>
+impl<S, SubId, Sub> PetronelFuture<S, SubId, Sub>
 where
+    SubId: Hash + Eq,
     Sub: Subscriber + Clone,
-    Sub::Id: Hash + Eq,
     Sub::Item: From<Message> + Clone,
 {
-    fn handle_event(&mut self, event: Event<Sub>) {
+    fn handle_event(&mut self, event: Event<SubId, Sub>) {
         use self::Event::*;
 
         match event {
@@ -291,16 +279,16 @@ where
         }
     }
 
-    fn subscribe(&mut self, id: Sub::Id, subscriber: Sub) {
+    fn subscribe(&mut self, id: SubId, subscriber: Sub) {
         // TODO: Choose ID randomly?
         self.subscribers.subscribe(id, subscriber);
     }
 
-    fn unsubscribe(&mut self, id: &Sub::Id) {
+    fn unsubscribe(&mut self, id: &SubId) {
         self.subscribers.unsubscribe(id);
     }
 
-    fn follow(&mut self, id: Sub::Id, boss_name: BossName) {
+    fn follow(&mut self, id: SubId, boss_name: BossName) {
         if let Some(sub) = self.subscribers.get(&id) {
             let subscriber = sub.clone();
 
@@ -321,7 +309,7 @@ where
         }
     }
 
-    fn unfollow(&mut self, id: &Sub::Id, boss_name: BossName) {
+    fn unfollow(&mut self, id: &SubId, boss_name: BossName) {
         if let Some(entry) = self.bosses.get_mut(&boss_name) {
             entry.broadcast.unsubscribe(&id);
         } else if let Entry::Occupied(mut entry) = self.requested_bosses.entry(boss_name) {
@@ -389,11 +377,14 @@ where
     }
 }
 
-impl<S, Sub> Future for PetronelFuture<S, Sub>
+impl<S, SubId, Sub> Future for PetronelFuture<S, SubId, Sub>
 where
-    S: Stream<Item = RaidInfo, Error = Error>,
+    S: Stream<
+        Item = RaidInfo,
+        Error = Error,
+    >,
+    SubId: Hash + Eq,
     Sub: Subscriber + Clone,
-    Sub::Id: Hash + Eq,
     Sub::Item: From<Message> + Clone,
 {
     type Item = ();
