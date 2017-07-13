@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
 use std::iter::FromIterator;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
@@ -55,15 +54,11 @@ impl<T> Future for AsyncResult<T> {
 }
 
 #[derive(Debug)]
-pub struct Petronel<SubId, Sub>(
-    mpsc::UnboundedSender<Event<SubId, Sub>>,
-    PhantomData<SubId>,
-    PhantomData<Sub>
-);
+pub struct Petronel<SubId, Sub>(mpsc::UnboundedSender<Event<SubId, Sub>>);
 
 impl<SubId, Sub> Clone for Petronel<SubId, Sub> {
     fn clone(&self) -> Self {
-        Petronel(self.0.clone(), PhantomData, PhantomData)
+        Petronel(self.0.clone())
     }
 }
 
@@ -232,7 +227,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
             subscribers: Broadcast::new(),
         };
 
-        (Petronel(tx, PhantomData, PhantomData), future)
+        (Petronel(tx), future)
     }
 }
 
