@@ -5,15 +5,17 @@ extern crate serde_derive;
 #[macro_use]
 extern crate lazy_static;
 
-extern crate regex;
+extern crate bytes;
 extern crate futures;
-extern crate tokio_core;
-extern crate petronel;
 extern crate hyper;
 extern crate percent_encoding;
+extern crate petronel;
+extern crate regex;
 extern crate serde;
 extern crate serde_json;
+extern crate tokio_core;
 
+use bytes::Bytes;
 use futures::{Future, Poll, Sink, Stream};
 use futures::sync::mpsc;
 use hyper::header;
@@ -51,7 +53,14 @@ quick_main!(|| -> Result<()> {
 
     let stream = petronel::raid::RaidInfoStream::with_handle(&core.handle(), &token);
 
-    let (petronel, petronel_worker) = Petronel::from_stream(stream, 10);
+    let (petronel, petronel_worker) = Petronel::from_stream(stream, 10, |msg| match msg {
+        Message::Heartbeat => "\n".into(),
+        other => {
+            let mut bytes = serde_json::to_vec(&other).unwrap();
+            bytes.push(b'\n');
+            bytes.into()
+        }
+    });
 
     let petronel_server = PetronelServer(petronel.clone());
 
@@ -80,20 +89,11 @@ quick_main!(|| -> Result<()> {
 struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
 
 impl Subscriber for Sender {
-    type Item = Message;
+    type Item = Bytes;
 
-    fn send(&mut self, message: &Message) -> std::result::Result<(), ()> {
-        let chunk = match message {
-            &Message::Heartbeat => vec![b'\n'].into(),
-            other => {
-                let mut bytes = serde_json::to_string(other).unwrap();
-                bytes.push('\n');
-                bytes.into()
-            }
-        };
-
+    fn send(&mut self, bytes: &Bytes) -> std::result::Result<(), ()> {
         self.0
-            .start_send(Ok(chunk))
+            .start_send(Ok(bytes.clone().into()))
             .and_then(|_| self.0.poll_complete())
             .map(|_| ())
             .map_err(|_| ())

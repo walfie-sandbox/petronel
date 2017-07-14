@@ -30,7 +30,7 @@ quick_main!(|| -> Result<()> {
 
     let stream = petronel::raid::RaidInfoStream::with_handle(&core.handle(), &token);
 
-    let (client, future) = Petronel::<(), EmptySubscriber>::from_stream(stream, 20);
+    let (client, future) = Petronel::<(), EmptySubscriber>::from_stream(stream, 20, |m| m);
 
     // Fetch boss list once per 5 seconds
     let interval = Interval::new(Duration::new(5, 0), &core.handle())

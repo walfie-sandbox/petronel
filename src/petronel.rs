@@ -181,7 +181,7 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<S, SubId, Sub> {
+pub struct PetronelFuture<S, SubId, Sub, F> {
     events: Select<
         Map<S, fn(RaidInfo) -> Event<SubId, Sub>>,
         OrElse<
@@ -194,6 +194,7 @@ pub struct PetronelFuture<S, SubId, Sub> {
     tweet_history_size: usize,
     requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
     subscribers: Broadcast<SubId, Sub>,
+    map_message: F,
 }
 
 impl<SubId, Sub> Petronel<SubId, Sub> {
@@ -202,15 +203,16 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
     }
 
     // TODO: Builder
-    pub fn from_stream<S>(
+    pub fn from_stream<S, F>(
         stream: S,
         tweet_history_size: usize,
-    ) -> (Self, PetronelFuture<S, SubId, Sub>)
+        map_message: F,
+    ) -> (Self, PetronelFuture<S, SubId, Sub, F>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
         Sub: Subscriber,
-        Sub::Item: From<Message> + Clone,
         SubId: Hash + Eq,
+        F: Fn(Message) -> Sub::Item,
     {
         let (tx, rx) = mpsc::unbounded();
 
@@ -225,17 +227,18 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
             tweet_history_size,
             requested_bosses: HashMap::new(),
             subscribers: Broadcast::new(),
+            map_message,
         };
 
         (Petronel(tx), future)
     }
 }
 
-impl<S, SubId, Sub> PetronelFuture<S, SubId, Sub>
+impl<S, SubId, Sub, F> PetronelFuture<S, SubId, Sub, F>
 where
     SubId: Hash + Eq,
     Sub: Subscriber + Clone,
-    Sub::Item: From<Message> + Clone,
+    F: Fn(Message) -> Sub::Item,
 {
     fn handle_event(&mut self, event: Event<SubId, Sub>) {
         use self::Event::*;
@@ -270,7 +273,11 @@ where
                 let _ = sender.send(backlog);
             }
             ReadError => {} // This should never happen
-            Heartbeat => self.subscribers.send(&Message::Heartbeat.into()),
+            Heartbeat => {
+                // TODO: Map this just once and cache it
+                let message = (self.map_message)(Message::Heartbeat);
+                self.subscribers.send(&message)
+            }
         }
     }
 
@@ -328,7 +335,8 @@ where
                 value.last_seen = info.tweet.created_at;
 
                 let tweet = Arc::new(info.tweet);
-                value.broadcast.send(&Message::Tweet(tweet.clone()).into());
+                let message = Message::Tweet(tweet.clone());
+                value.broadcast.send(&(self.map_message)(message));
                 value.recent_tweets.push(tweet);
 
                 if value.boss.image.is_none() && info.image.is_some() {
@@ -353,7 +361,8 @@ where
                 let last_seen = info.tweet.created_at.clone();
 
                 let tweet = Arc::new(info.tweet);
-                broadcast.send(&Message::Tweet(tweet.clone()).into());
+                let message = Message::Tweet(tweet.clone());
+                broadcast.send(&(self.map_message)(message));
 
                 entry.insert(RaidBossEntry {
                     boss,
@@ -372,7 +381,7 @@ where
     }
 }
 
-impl<S, SubId, Sub> Future for PetronelFuture<S, SubId, Sub>
+impl<S, SubId, Sub, F> Future for PetronelFuture<S, SubId, Sub, F>
 where
     S: Stream<
         Item = RaidInfo,
@@ -380,7 +389,7 @@ where
     >,
     SubId: Hash + Eq,
     Sub: Subscriber + Clone,
-    Sub::Item: From<Message> + Clone,
+    F: Fn(Message) -> Sub::Item,
 {
     type Item = ();
     type Error = Error;
