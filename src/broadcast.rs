@@ -1,3 +1,4 @@
+use futures::Sink;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -6,6 +7,33 @@ pub trait Subscriber {
     type Item;
 
     fn send(&mut self, message: &Self::Item) -> Result<(), ()>;
+}
+
+pub struct SinkSubscriber<T>(T);
+
+impl<T> From<T> for SinkSubscriber<T>
+where
+    T: Sink,
+    T::SinkItem: Clone,
+{
+    fn from(sink: T) -> Self {
+        SinkSubscriber(sink)
+    }
+}
+
+impl<T> Subscriber for SinkSubscriber<T>
+where
+    T: Sink,
+    T::SinkItem: Clone,
+{
+    type Item = T::SinkItem;
+
+    fn send(&mut self, message: &Self::Item) -> Result<(), ()> {
+        self.0
+            .start_send(message.clone().into())
+            .and_then(|_| self.0.poll_complete().map(|_| ()))
+            .map_err(|_| ())
+    }
 }
 
 #[derive(Clone, Debug)]

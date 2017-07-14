@@ -21,6 +21,6 @@ mod petronel;
 mod broadcast;
 mod circular_buffer;
 
-pub use broadcast::{EmptySubscriber, Subscriber};
+pub use broadcast::{EmptySubscriber, SinkSubscriber, Subscriber};
 pub use petronel::{Petronel, Subscription};
 pub use twitter_stream::Token;

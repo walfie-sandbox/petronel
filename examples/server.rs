@@ -66,16 +66,17 @@ quick_main!(|| -> Result<()> {
 
     println!("Listening on {}", bind_address);
 
+    let http = Http::new();
     let server = listener
         .incoming()
         .for_each(move |(sock, addr)| {
-            Http::new().bind_connection(&handle, sock, addr, petronel_server.clone());
+            http.bind_connection(&handle, sock, addr, petronel_server.clone());
             Ok(())
         })
         .then(|r| r.chain_err(|| "server failed"));
 
-    // Send heartbeat every 10 seconds
-    let heartbeat = Interval::new(Duration::new(10, 0), &core.handle())
+    // Send heartbeat every 30 seconds
+    let heartbeat = Interval::new(Duration::new(30, 0), &core.handle())
         .chain_err(|| "failed to create Interval")?
         .for_each(move |_| Ok(petronel.heartbeat()))
         .then(|r| r.chain_err(|| "heartbeat failed"));
@@ -94,8 +95,7 @@ impl Subscriber for Sender {
     fn send(&mut self, bytes: &Bytes) -> std::result::Result<(), ()> {
         self.0
             .start_send(Ok(bytes.clone().into()))
-            .and_then(|_| self.0.poll_complete())
-            .map(|_| ())
+            .and_then(|_| self.0.poll_complete().map(|_| ()))
             .map_err(|_| ())
     }
 }
