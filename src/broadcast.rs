@@ -1,39 +1,69 @@
+use futures::Sink;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-pub trait Subscriber<T> {
-    fn send(&mut self, message: &T);
+pub trait Subscriber {
+    type Item;
+
+    fn send(&mut self, message: &Self::Item) -> Result<(), ()>;
 }
 
-#[derive(Clone, Debug)]
-pub struct EmptySubscriber<T>(PhantomData<T>);
-impl<T> Subscriber<T> for EmptySubscriber<T> {
-    fn send(&mut self, _message: &T) {}
-}
+pub struct SinkSubscriber<T>(T);
 
-pub struct Broadcast<Id, S, T> {
-    subscribers: HashMap<Id, S>,
-    message_type: PhantomData<T>,
-}
-
-impl<Id, S, T> Broadcast<Id, S, T>
+impl<T> From<T> for SinkSubscriber<T>
 where
-    Id: Eq + Hash,
-    S: Subscriber<T>,
-    T: Clone,
+    T: Sink,
+    T::SinkItem: Clone,
 {
-    pub fn new() -> Self {
-        Broadcast {
-            subscribers: HashMap::new(),
-            message_type: PhantomData,
-        }
+    fn from(sink: T) -> Self {
+        SinkSubscriber(sink)
     }
 }
 
-impl<Id, S, T> Broadcast<Id, S, T>
+impl<T> Subscriber for SinkSubscriber<T>
+where
+    T: Sink,
+    T::SinkItem: Clone,
+{
+    type Item = T::SinkItem;
+
+    fn send(&mut self, message: &Self::Item) -> Result<(), ()> {
+        self.0
+            .start_send(message.clone().into())
+            .and_then(|_| self.0.poll_complete().map(|_| ()))
+            .map_err(|_| ())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct EmptySubscriber<T = ::model::Message>(PhantomData<T>);
+impl<T> Subscriber for EmptySubscriber<T> {
+    type Item = T;
+
+    fn send(&mut self, _message: &T) -> Result<(), ()> {
+        Ok(())
+    }
+}
+
+pub struct Broadcast<Id, S> {
+    subscribers: HashMap<Id, S>,
+}
+
+impl<Id, S> Broadcast<Id, S>
 where
     Id: Eq + Hash,
+    S: Subscriber,
+{
+    pub fn new() -> Self {
+        Broadcast { subscribers: HashMap::new() }
+    }
+}
+
+impl<Id, S> Broadcast<Id, S>
+where
+    Id: Eq + Hash,
+    S: Subscriber,
 {
     pub fn is_empty(&self) -> bool {
         self.subscribers.is_empty()
@@ -51,12 +81,10 @@ where
         self.subscribers.remove(id)
     }
 
-    pub fn send(&mut self, message: &T)
-    where
-        S: Subscriber<T>,
-    {
-        for subscriber in self.subscribers.values_mut() {
-            subscriber.send(message)
-        }
+    pub fn send(&mut self, message: &S::Item) {
+        // Remove any subscribers that return an error
+        self.subscribers.retain(|_, subscriber| {
+            subscriber.send(message).is_ok()
+        })
     }
 }

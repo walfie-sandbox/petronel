@@ -5,15 +5,17 @@ extern crate serde_derive;
 #[macro_use]
 extern crate lazy_static;
 
-extern crate regex;
+extern crate bytes;
 extern crate futures;
-extern crate tokio_core;
-extern crate petronel;
 extern crate hyper;
 extern crate percent_encoding;
+extern crate petronel;
+extern crate regex;
 extern crate serde;
 extern crate serde_json;
+extern crate tokio_core;
 
+use bytes::Bytes;
 use futures::{Future, Poll, Sink, Stream};
 use futures::sync::mpsc;
 use hyper::header;
@@ -51,22 +53,30 @@ quick_main!(|| -> Result<()> {
 
     let stream = petronel::raid::RaidInfoStream::with_handle(&core.handle(), &token);
 
-    let (petronel, petronel_worker) = Petronel::from_stream(stream, 10);
+    let (petronel, petronel_worker) = Petronel::from_stream(stream, 10, |msg| match msg {
+        Message::Heartbeat => "\n".into(),
+        other => {
+            let mut bytes = serde_json::to_vec(&other).unwrap();
+            bytes.push(b'\n');
+            bytes.into()
+        }
+    });
 
     let petronel_server = PetronelServer(petronel.clone());
 
     println!("Listening on {}", bind_address);
 
+    let http = Http::new();
     let server = listener
         .incoming()
         .for_each(move |(sock, addr)| {
-            Http::new().bind_connection(&handle, sock, addr, petronel_server.clone());
+            http.bind_connection(&handle, sock, addr, petronel_server.clone());
             Ok(())
         })
         .then(|r| r.chain_err(|| "server failed"));
 
-    // Send heartbeat every 10 seconds
-    let heartbeat = Interval::new(Duration::new(10, 0), &core.handle())
+    // Send heartbeat every 30 seconds
+    let heartbeat = Interval::new(Duration::new(30, 0), &core.handle())
         .chain_err(|| "failed to create Interval")?
         .for_each(move |_| Ok(petronel.heartbeat()))
         .then(|r| r.chain_err(|| "heartbeat failed"));
@@ -79,19 +89,14 @@ quick_main!(|| -> Result<()> {
 #[derive(Clone)]
 struct Sender(mpsc::Sender<hyper::Result<hyper::Chunk>>);
 
-impl Subscriber<Message> for Sender {
-    fn send(&mut self, message: &Message) {
-        let chunk = match message {
-            &Message::Heartbeat => vec![b'\n'].into(),
-            other => {
-                let mut bytes = serde_json::to_string(other).unwrap();
-                bytes.push('\n');
-                bytes.into()
-            }
-        };
+impl Subscriber for Sender {
+    type Item = Bytes;
 
-        let _ = self.0.start_send(Ok(chunk));
-        let _ = self.0.poll_complete();
+    fn send(&mut self, bytes: &Bytes) -> std::result::Result<(), ()> {
+        self.0
+            .start_send(Ok(bytes.clone().into()))
+            .and_then(|_| self.0.poll_complete().map(|_| ()))
+            .map_err(|_| ())
     }
 }
 
