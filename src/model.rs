@@ -2,7 +2,6 @@ use chrono;
 use regex::Regex;
 use std::fmt;
 use std::ops::Deref;
-use std::sync::Arc;
 use string_cache::DefaultAtom;
 
 pub type DateTime = chrono::DateTime<chrono::Utc>;
@@ -17,9 +16,10 @@ lazy_static! {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum Message {
+pub enum Message<'a> {
     Heartbeat,
-    Tweet(Arc<RaidTweet>),
+    Tweet(&'a RaidTweet),
+    BossUpdate(&'a RaidBoss),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

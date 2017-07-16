@@ -1,7 +1,6 @@
 use futures::Sink;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::marker::PhantomData;
 
 pub trait Subscriber {
     type Item;
@@ -37,11 +36,11 @@ where
 }
 
 #[derive(Clone, Debug)]
-pub struct EmptySubscriber<T = ::model::Message>(PhantomData<T>);
-impl<T> Subscriber for EmptySubscriber<T> {
-    type Item = T;
+pub struct EmptySubscriber;
+impl Subscriber for EmptySubscriber {
+    type Item = ();
 
-    fn send(&mut self, _message: &T) -> Result<(), ()> {
+    fn send(&mut self, _message: &Self::Item) -> Result<(), ()> {
         Ok(())
     }
 }
