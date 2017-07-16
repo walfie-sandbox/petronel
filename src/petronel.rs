@@ -332,10 +332,12 @@ where
 
                 value.last_seen = info.tweet.created_at;
 
-                let tweet = Arc::new(info.tweet);
-                let message = Message::Tweet(tweet.clone());
-                value.broadcast.send(&(self.map_message)(message));
-                value.recent_tweets.push(tweet);
+                {
+                    let message = Message::Tweet(&info.tweet);
+                    value.broadcast.send(&(self.map_message)(message));
+                }
+
+                value.recent_tweets.push(Arc::new(info.tweet));
 
                 if value.boss.image.is_none() && info.image.is_some() {
                     // TODO: Image hash
@@ -349,6 +351,7 @@ where
                     Broadcast::new(),
                 );
 
+                let last_seen = info.tweet.created_at.clone();
                 let boss = RaidBoss {
                     level: name.parse_level().unwrap_or(DEFAULT_BOSS_LEVEL),
                     name: name,
@@ -356,24 +359,23 @@ where
                     language: info.tweet.language,
                 };
 
-                let last_seen = info.tweet.created_at.clone();
+                {
+                    let boss_message = Message::BossUpdate(&boss);
+                    self.subscribers.send(&(self.map_message)(boss_message));
 
-                let tweet = Arc::new(info.tweet);
-                let message = Message::Tweet(tweet.clone());
-                broadcast.send(&(self.map_message)(message));
+                    let tweet_message = Message::Tweet(&info.tweet);
+                    broadcast.send(&(self.map_message)(tweet_message));
+                }
+
+                let mut recent_tweets = CircularBuffer::with_capacity(self.tweet_history_size);
+                recent_tweets.push(Arc::new(info.tweet));
 
                 entry.insert(RaidBossEntry {
                     boss,
                     broadcast,
                     last_seen,
-                    recent_tweets: {
-                        let mut recent_tweets =
-                            CircularBuffer::with_capacity(self.tweet_history_size);
-                        recent_tweets.push(tweet);
-                        recent_tweets
-                    },
+                    recent_tweets,
                 });
-
             }
         }
     }
