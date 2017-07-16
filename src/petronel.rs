@@ -5,6 +5,8 @@ use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use futures::unsync::oneshot;
+use hyper::{Client, Uri};
+use hyper::client::Connect;
 use id_pool::{Id as SubId, IdPool};
 use model::{BossLevel, BossName, DateTime, Message, RaidBoss, RaidTweet};
 use raid::RaidInfo;
@@ -176,7 +178,8 @@ impl<Sub> Petronel<Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<S, Sub, F> {
+pub struct PetronelFuture<'a, C: 'a, S, Sub, F> {
+    hyper: &'a Client<C>,
     id_pool: IdPool,
     events: Select<
         Map<S, fn(RaidInfo) -> Event<Sub>>,
@@ -199,12 +202,14 @@ impl<Sub> Petronel<Sub> {
     }
 
     // TODO: Builder
-    pub fn from_stream<S, F>(
+    pub fn from_stream<'a, C, S, F>(
         stream: S,
         tweet_history_size: usize,
+        hyper: &'a Client<C>,
         map_message: F,
-    ) -> (Self, PetronelFuture<S, Sub, F>)
+    ) -> (Self, PetronelFuture<'a, C, S, Sub, F>)
     where
+        C: Connect,
         S: Stream<Item = RaidInfo, Error = Error>,
         Sub: Subscriber,
         F: Fn(Message) -> Sub::Item,
@@ -215,6 +220,7 @@ impl<Sub> Petronel<Sub> {
         let rx = rx.or_else(Self::events_read_error as fn(()) -> Result<Event<Sub>>);
 
         let future = PetronelFuture {
+            hyper,
             id_pool: IdPool::new(),
             events: stream_events.select(rx),
             bosses: HashMap::new(),
@@ -228,8 +234,9 @@ impl<Sub> Petronel<Sub> {
     }
 }
 
-impl<S, Sub, F> PetronelFuture<S, Sub, F>
+impl<'a, C, S, Sub, F> PetronelFuture<'a, C, S, Sub, F>
 where
+    C: Connect,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {
@@ -387,9 +394,13 @@ where
     }
 }
 
-impl<S, Sub, F> Future for PetronelFuture<S, Sub, F>
+impl<'a, C, S, Sub, F> Future for PetronelFuture<'a, C, S, Sub, F>
 where
-    S: Stream<Item = RaidInfo, Error = Error>,
+    C: Connect,
+    S: Stream<
+        Item = RaidInfo,
+        Error = Error,
+    >,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {

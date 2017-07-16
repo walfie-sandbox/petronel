@@ -20,7 +20,7 @@ fn crop_and_hash(bytes: &[u8]) -> Result<ImageHash> {
     Ok(ImageHash::new(&img))
 }
 
-fn fetch_and_hash<C>(
+pub fn fetch_and_hash<C>(
     client: &Client<C>,
     boss_name: BossName,
     uri: Uri,
