@@ -10,5 +10,8 @@ error_chain!{
         Closed {
             description("channel closed by sender")
         }
+        ImageHash {
+            description("failed to compute image hash")
+        }
     }
 }
