@@ -31,7 +31,7 @@ impl IdPool {
     // This should never be called with `id` less than `max_id`
     pub fn recycle(&mut self, id: Id) {
         debug_assert!(id.0 <= self.max_id);
-        self.available.push(id)
+        self.available.push(id);
     }
 }
 
