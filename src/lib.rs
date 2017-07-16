@@ -18,6 +18,7 @@ pub mod model;
 pub mod raid;
 pub mod error;
 mod petronel;
+mod id_pool;
 mod broadcast;
 mod circular_buffer;
 

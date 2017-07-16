@@ -5,17 +5,17 @@ use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use futures::unsync::oneshot;
+use id_pool::{Id as SubId, IdPool};
 use model::{BossLevel, BossName, DateTime, Message, RaidBoss, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
-use std::hash::Hash;
 use std::iter::FromIterator;
 use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
-struct RaidBossEntry<SubId, Sub> {
+struct RaidBossEntry<Sub> {
     boss: RaidBoss,
     last_seen: DateTime,
     recent_tweets: CircularBuffer<Arc<RaidTweet>>,
@@ -23,13 +23,17 @@ struct RaidBossEntry<SubId, Sub> {
 }
 
 #[derive(Debug)]
-enum Event<SubId, Sub> {
+enum Event<Sub> {
     NewRaidInfo(RaidInfo),
 
     Follow { id: SubId, boss_name: BossName },
     Unfollow { id: SubId, boss_name: BossName },
 
-    Subscribe { id: SubId, subscriber: Sub },
+    Subscribe {
+        subscriber: Sub,
+        petronel: Petronel<Sub>,
+        sender: oneshot::Sender<Subscription<Sub>>,
+    },
     Unsubscribe(SubId),
 
     GetBosses(oneshot::Sender<Vec<RaidBoss>>),
@@ -54,9 +58,9 @@ impl<T> Future for AsyncResult<T> {
 }
 
 #[derive(Debug)]
-pub struct Petronel<SubId, Sub>(mpsc::UnboundedSender<Event<SubId, Sub>>);
+pub struct Petronel<Sub>(mpsc::UnboundedSender<Event<Sub>>);
 
-impl<SubId, Sub> Clone for Petronel<SubId, Sub> {
+impl<Sub> Clone for Petronel<Sub> {
     fn clone(&self) -> Self {
         Petronel(self.0.clone())
     }
@@ -64,19 +68,14 @@ impl<SubId, Sub> Clone for Petronel<SubId, Sub> {
 
 // TODO: Figure out if there is a way to do this without owning `Petronel`
 #[must_use = "Subscriptions are cancelled when they go out of scope"]
-pub struct Subscription<SubId, Sub>
-where
-    SubId: Clone,
-{
+#[derive(Debug)]
+pub struct Subscription<Sub> {
     id: SubId,
     following: HashSet<BossName>,
-    petronel: Petronel<SubId, Sub>,
+    petronel: Petronel<Sub>,
 }
 
-impl<SubId, Sub> Subscription<SubId, Sub>
-where
-    SubId: Clone,
-{
+impl<Sub> Subscription<Sub> {
     pub fn follow<B>(&mut self, boss_name: B)
     where
         B: Into<BossName>,
@@ -100,10 +99,7 @@ where
     }
 }
 
-impl<SubId, Sub> Drop for Subscription<SubId, Sub>
-where
-    SubId: Clone,
-{
+impl<Sub> Drop for Subscription<Sub> {
     fn drop(&mut self) {
         let mut following = ::std::mem::replace(&mut self.following, HashSet::with_capacity(0));
 
@@ -116,35 +112,28 @@ where
 }
 
 
-impl<SubId, Sub> Petronel<SubId, Sub> {
-    fn send(&self, event: Event<SubId, Sub>) {
+impl<Sub> Petronel<Sub> {
+    fn send(&self, event: Event<Sub>) {
         let _ = mpsc::UnboundedSender::send(&self.0, event);
     }
 
     fn request<T, F>(&self, f: F) -> AsyncResult<T>
     where
-        F: FnOnce(oneshot::Sender<T>) -> Event<SubId, Sub>,
+        F: FnOnce(oneshot::Sender<T>) -> Event<Sub>,
     {
         let (tx, rx) = oneshot::channel();
         self.send(f(tx));
         AsyncResult(rx)
     }
 
-    pub fn subscribe(&self, id: SubId, subscriber: Sub) -> Subscription<SubId, Sub>
-    where
-        SubId: Clone,
-    {
-        let event = Event::Subscribe {
-            id: id.clone(),
-            subscriber,
-        };
-        let _ = mpsc::UnboundedSender::send(&self.0, event);
-
-        Subscription {
-            id,
-            following: HashSet::new(),
-            petronel: self.clone(),
-        }
+    pub fn subscribe(&self, subscriber: Sub) -> AsyncResult<Subscription<Sub>> {
+        self.request(|sender| {
+            Event::Subscribe {
+                subscriber,
+                sender,
+                petronel: self.clone(),
+            }
+        })
     }
 
     fn unsubscribe(&self, id: SubId) {
@@ -181,24 +170,25 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<S, SubId, Sub, F> {
+pub struct PetronelFuture<S, Sub, F> {
+    id_pool: IdPool,
     events: Select<
-        Map<S, fn(RaidInfo) -> Event<SubId, Sub>>,
+        Map<S, fn(RaidInfo) -> Event<Sub>>,
         OrElse<
-            mpsc::UnboundedReceiver<Event<SubId, Sub>>,
-            fn(()) -> Result<Event<SubId, Sub>>,
-            Result<Event<SubId, Sub>>,
+            mpsc::UnboundedReceiver<Event<Sub>>,
+            fn(()) -> Result<Event<Sub>>,
+            Result<Event<Sub>>,
         >,
     >,
-    bosses: HashMap<BossName, RaidBossEntry<SubId, Sub>>,
+    bosses: HashMap<BossName, RaidBossEntry<Sub>>,
     tweet_history_size: usize,
     requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
     subscribers: Broadcast<SubId, Sub>,
     map_message: F,
 }
 
-impl<SubId, Sub> Petronel<SubId, Sub> {
-    fn events_read_error(_: ()) -> Result<Event<SubId, Sub>> {
+impl<Sub> Petronel<Sub> {
+    fn events_read_error(_: ()) -> Result<Event<Sub>> {
         Ok(Event::ReadError)
     }
 
@@ -207,21 +197,19 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
         stream: S,
         tweet_history_size: usize,
         map_message: F,
-    ) -> (Self, PetronelFuture<S, SubId, Sub, F>)
+    ) -> (Self, PetronelFuture<S, Sub, F>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
         Sub: Subscriber,
-        SubId: Hash + Eq,
         F: Fn(Message) -> Sub::Item,
     {
         let (tx, rx) = mpsc::unbounded();
 
-        let stream_events = stream.map(Event::NewRaidInfo as fn(RaidInfo) -> Event<SubId, Sub>);
-        let rx = rx.or_else(
-            Self::events_read_error as fn(()) -> Result<Event<SubId, Sub>>,
-        );
+        let stream_events = stream.map(Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub>);
+        let rx = rx.or_else(Self::events_read_error as fn(()) -> Result<Event<Sub>>);
 
         let future = PetronelFuture {
+            id_pool: IdPool::new(),
             events: stream_events.select(rx),
             bosses: HashMap::new(),
             tweet_history_size,
@@ -234,18 +222,26 @@ impl<SubId, Sub> Petronel<SubId, Sub> {
     }
 }
 
-impl<S, SubId, Sub, F> PetronelFuture<S, SubId, Sub, F>
+impl<S, Sub, F> PetronelFuture<S, Sub, F>
 where
-    SubId: Hash + Eq,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {
-    fn handle_event(&mut self, event: Event<SubId, Sub>) {
+    fn handle_event(&mut self, event: Event<Sub>) {
         use self::Event::*;
 
         match event {
-            Subscribe { id, subscriber } => {
-                self.subscribe(id, subscriber);
+            Subscribe {
+                subscriber,
+                sender,
+                petronel,
+            } => {
+                let id = self.subscribe(subscriber);
+                let _ = sender.send(Subscription {
+                    id,
+                    following: HashSet::new(),
+                    petronel,
+                });
             }
             Unsubscribe(id) => {
                 self.unsubscribe(&id);
@@ -281,13 +277,15 @@ where
         }
     }
 
-    fn subscribe(&mut self, id: SubId, subscriber: Sub) {
-        // TODO: Choose ID randomly?
-        self.subscribers.subscribe(id, subscriber);
+    fn subscribe(&mut self, subscriber: Sub) -> SubId {
+        let id = self.id_pool.get();
+        self.subscribers.subscribe(id.clone(), subscriber);
+        id
     }
 
     fn unsubscribe(&mut self, id: &SubId) {
         self.subscribers.unsubscribe(id);
+        self.id_pool.recycle(id.clone());
     }
 
     fn follow(&mut self, id: SubId, boss_name: BossName) {
@@ -381,13 +379,9 @@ where
     }
 }
 
-impl<S, SubId, Sub, F> Future for PetronelFuture<S, SubId, Sub, F>
+impl<S, Sub, F> Future for PetronelFuture<S, Sub, F>
 where
-    S: Stream<
-        Item = RaidInfo,
-        Error = Error,
-    >,
-    SubId: Hash + Eq,
+    S: Stream<Item = RaidInfo, Error = Error>,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {

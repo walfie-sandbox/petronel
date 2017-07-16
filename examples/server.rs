@@ -100,7 +100,7 @@ impl Subscriber for Sender {
     }
 }
 
-struct PetronelServer(Petronel<u16, Sender>);
+struct PetronelServer(Petronel<Sender>);
 
 impl Clone for PetronelServer {
     fn clone(&self) -> Self {
@@ -126,7 +126,7 @@ lazy_static! {
 
 struct Body {
     body: hyper::Body,
-    _subscription: Option<Subscription<u16, Sender>>,
+    _subscription: Option<Subscription<Sender>>,
 }
 
 impl Stream for Body {
@@ -193,27 +193,28 @@ impl Service for PetronelServer {
 
             Box::new(resp) as Self::Future
         } else if let Some(captures) = REGEX_BOSS_STREAM.captures(&path) {
-            let name = captures.name("boss_name").unwrap().as_str();
+            let name = captures.name("boss_name").unwrap().as_str().to_string();
 
             let (sender, chunks) = hyper::Body::pair();
 
-            // TODO: Should this fail instead of returning 0?
-            let id = req.remote_addr().map(|addr| addr.port()).unwrap_or(0);
+            let response = self.0
+                .subscribe(Sender(sender))
+                .map(move |mut subscription| {
+                    subscription.follow(name);
 
-            let mut subscription = self.0.subscribe(id, Sender(sender));
-            subscription.follow(name);
+                    let body = Body {
+                        body: chunks,
+                        _subscription: Some(subscription),
+                    };
 
-            let body = Body {
-                body: chunks,
-                _subscription: Some(subscription),
-            };
+                    Response::new()
+                        .with_header(header::TransferEncoding::chunked())
+                        .with_header(header::Connection::keep_alive())
+                        .with_body(body)
+                })
+                .map_err(|_| hyper::Error::Incomplete);
 
-            let response = Response::new()
-                .with_header(header::TransferEncoding::chunked())
-                .with_header(header::Connection::keep_alive())
-                .with_body(body);
-
-            Box::new(futures::future::ok(response)) as Self::Future
+            Box::new(response) as Self::Future
         } else {
             let json = serde_json::to_string(&JsonError {
                 error: format!("Unrecognized path: {}", path),
