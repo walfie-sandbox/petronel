@@ -94,7 +94,13 @@ impl<Sub> Subscription<Sub> {
         self.petronel.unfollow(self.id.clone(), name);
     }
 
-    pub fn unsubscribe(&self) {
+    #[inline]
+    pub fn unsubscribe(self) {
+        self.non_consuming_unsubscribe()
+    }
+
+    // This is needed for the Drop implementation
+    fn non_consuming_unsubscribe(&self) {
         self.petronel.unsubscribe(self.id.clone())
     }
 }
@@ -107,7 +113,7 @@ impl<Sub> Drop for Subscription<Sub> {
             self.unfollow(boss_name);
         }
 
-        self.unsubscribe()
+        self.non_consuming_unsubscribe();
     }
 }
 
