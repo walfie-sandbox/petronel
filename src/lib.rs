@@ -9,6 +9,7 @@ extern crate futures;
 
 extern crate chrono;
 extern crate hyper;
+extern crate image;
 extern crate regex;
 extern crate string_cache;
 extern crate tokio_core;
@@ -21,6 +22,7 @@ mod petronel;
 mod id_pool;
 mod broadcast;
 mod circular_buffer;
+mod image_hash;
 
 pub use broadcast::{EmptySubscriber, SinkSubscriber, Subscriber};
 pub use petronel::{Petronel, Subscription};
