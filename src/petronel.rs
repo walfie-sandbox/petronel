@@ -8,6 +8,7 @@ use futures::unsync::oneshot;
 use hyper::{Client, Uri};
 use hyper::client::Connect;
 use id_pool::{Id as SubId, IdPool};
+use image_hash::{self, BossImageHash, ImageHashReceiver, ImageHashSender};
 use model::{BossLevel, BossName, DateTime, Message, RaidBoss, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
@@ -178,8 +179,12 @@ impl<Sub> Petronel<Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<'a, C: 'a, S, Sub, F> {
-    hyper: &'a Client<C>,
+pub struct PetronelFuture<'a, C, S, Sub, F>
+where
+    C: 'a + Connect,
+{
+    hash_requester: ImageHashSender,
+    hash_receiver: ImageHashReceiver<'a, C>,
     id_pool: IdPool,
     events: Select<
         Map<S, fn(RaidInfo) -> Event<Sub>>,
@@ -219,8 +224,12 @@ impl<Sub> Petronel<Sub> {
         let stream_events = stream.map(Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub>);
         let rx = rx.or_else(Self::events_read_error as fn(()) -> Result<Event<Sub>>);
 
+        // TODO: Configurable
+        let (hash_requester, hash_receiver) = image_hash::channel(hyper, 10);
+
         let future = PetronelFuture {
-            hyper,
+            hash_requester,
+            hash_receiver,
             id_pool: IdPool::new(),
             events: stream_events.select(rx),
             bosses: HashMap::new(),
