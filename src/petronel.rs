@@ -21,6 +21,7 @@ const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 struct RaidBossEntry<Sub> {
     boss: RaidBoss,
     last_seen: DateTime,
+    image_hash: Option<ImageHash>,
     recent_tweets: CircularBuffer<Arc<RaidTweet>>,
     broadcast: Broadcast<SubId, Sub>,
 }
@@ -370,8 +371,39 @@ where
         }
     }
 
-    fn handle_image_hash(&self, boss_name: BossName, image_hash: ImageHash) {
-        println!("{}: {:?}", boss_name, image_hash); // TODO
+    fn handle_image_hash(&mut self, boss_name: BossName, image_hash: ImageHash) {
+        // TODO: Is it possible to avoid finding the same boss twice?
+        let (level, language) = match self.bosses.get_mut(&boss_name) {
+            Some(mut entry) => {
+                entry.image_hash = Some(image_hash);
+
+                (entry.boss.level, entry.boss.language)
+            }
+            None => return,
+        };
+
+        let mut matches = Vec::new();
+
+        for entry in self.bosses.values_mut() {
+            if entry.boss.level == level && entry.boss.language != language &&
+                entry.image_hash == Some(image_hash)
+            {
+                entry.boss.translations.insert(boss_name.clone());
+
+                let message = (self.map_message)(Message::BossUpdate(&entry.boss));
+                self.subscribers.send(&message);
+                matches.push(entry.boss.name.clone());
+            }
+        }
+
+        if !matches.is_empty() {
+            if let Some(mut entry) = self.bosses.get_mut(&boss_name) {
+                entry.boss.translations.extend(matches);
+
+                let message = (self.map_message)(Message::BossUpdate(&entry.boss));
+                self.subscribers.send(&message);
+            }
+        }
     }
 
     fn handle_raid_info(&mut self, info: RaidInfo) {
@@ -411,6 +443,7 @@ where
                     name: name,
                     image: info.image,
                     language: info.tweet.language,
+                    translations: HashSet::with_capacity(1),
                 };
 
                 {
@@ -433,6 +466,7 @@ where
                     broadcast,
                     last_seen,
                     recent_tweets,
+                    image_hash: None,
                 });
             }
         }
