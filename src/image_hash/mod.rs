@@ -8,13 +8,13 @@ use futures::unsync::mpsc;
 use hyper::{Client, Uri};
 use hyper::client::Connect;
 use image::{self, GenericImage};
-use model::{BossImageUrl, BossName};
+use model::BossName;
 use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct BossImageHash {
-    boss_name: BossName,
-    image_hash: ImageHash,
+    pub boss_name: BossName,
+    pub image_hash: ImageHash,
 }
 
 pub fn channel<'a, C>(
@@ -43,8 +43,8 @@ pub struct ImageHashSender {
 }
 
 impl ImageHashSender {
-    fn request(&self, boss_name: BossName, image_url: BossImageUrl) {
-        if let Ok(url) = image_url.as_str().parse() {
+    pub fn request(&self, boss_name: BossName, image_url: &str) {
+        if let Ok(url) = image_url.parse() {
             let _ = mpsc::UnboundedSender::send(&self.sink, (boss_name, url));
         }
     }

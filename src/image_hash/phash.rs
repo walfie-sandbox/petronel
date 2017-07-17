@@ -4,7 +4,7 @@ const SIZE: usize = 32;
 const SMALL_SIZE: usize = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ImageHash(i64);
+pub struct ImageHash(u64);
 
 impl ImageHash {
     pub fn new(img: &DynamicImage) -> Self {
@@ -12,7 +12,7 @@ impl ImageHash {
     }
 }
 
-fn get_hash(img: &DynamicImage) -> i64 {
+fn get_hash(img: &DynamicImage) -> u64 {
     let gray = img.resize_exact(SIZE as u32, SIZE as u32, FilterType::Nearest)
         .to_luma();
 

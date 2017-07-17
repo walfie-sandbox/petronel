@@ -5,10 +5,10 @@ use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use futures::unsync::oneshot;
-use hyper::{Client, Uri};
+use hyper::Client;
 use hyper::client::Connect;
 use id_pool::{Id as SubId, IdPool};
-use image_hash::{self, BossImageHash, ImageHashReceiver, ImageHashSender};
+use image_hash::{self, BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender};
 use model::{BossLevel, BossName, DateTime, Message, RaidBoss, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
@@ -28,6 +28,10 @@ struct RaidBossEntry<Sub> {
 #[derive(Debug)]
 enum Event<Sub> {
     NewRaidInfo(RaidInfo),
+    NewImageHash {
+        boss_name: BossName,
+        image_hash: ImageHash,
+    },
 
     Follow { id: SubId, boss_name: BossName },
     Unfollow { id: SubId, boss_name: BossName },
@@ -184,14 +188,16 @@ where
     C: 'a + Connect,
 {
     hash_requester: ImageHashSender,
-    hash_receiver: ImageHashReceiver<'a, C>,
     id_pool: IdPool,
     events: Select<
-        Map<S, fn(RaidInfo) -> Event<Sub>>,
         OrElse<
             mpsc::UnboundedReceiver<Event<Sub>>,
             fn(()) -> Result<Event<Sub>>,
             Result<Event<Sub>>,
+        >,
+        Select<
+            Map<S, fn(RaidInfo) -> Event<Sub>>,
+            Map<ImageHashReceiver<'a, C>, fn(BossImageHash) -> Event<Sub>>,
         >,
     >,
     bosses: HashMap<BossName, RaidBossEntry<Sub>>,
@@ -204,6 +210,13 @@ where
 impl<Sub> Petronel<Sub> {
     fn events_read_error(_: ()) -> Result<Event<Sub>> {
         Ok(Event::ReadError)
+    }
+
+    fn boss_image_hash_to_event(msg: BossImageHash) -> Event<Sub> {
+        Event::NewImageHash {
+            boss_name: msg.boss_name,
+            image_hash: msg.image_hash,
+        }
     }
 
     // TODO: Builder
@@ -226,12 +239,15 @@ impl<Sub> Petronel<Sub> {
 
         // TODO: Configurable
         let (hash_requester, hash_receiver) = image_hash::channel(hyper, 10);
+        let hash_events = hash_receiver.map(
+            Self::boss_image_hash_to_event as
+                fn(BossImageHash) -> Event<Sub>,
+        );
 
         let future = PetronelFuture {
             hash_requester,
-            hash_receiver,
             id_pool: IdPool::new(),
-            events: stream_events.select(rx),
+            events: rx.select(stream_events.select(hash_events)),
             bosses: HashMap::new(),
             tweet_history_size,
             requested_bosses: HashMap::new(),
@@ -278,6 +294,13 @@ where
             NewRaidInfo(r) => {
                 self.handle_raid_info(r);
             }
+            NewImageHash {
+                boss_name,
+                image_hash,
+            } => {
+                self.handle_image_hash(boss_name, image_hash);
+            }
+
             GetBosses(tx) => {
                 let _ = tx.send(Vec::from_iter(self.bosses.values().map(|e| e.boss.clone())));
             }
@@ -347,6 +370,10 @@ where
         }
     }
 
+    fn handle_image_hash(&self, boss_name: BossName, image_hash: ImageHash) {
+        println!("{}: {:?}", boss_name, image_hash); // TODO
+    }
+
     fn handle_raid_info(&mut self, info: RaidInfo) {
         match self.bosses.entry(info.tweet.boss_name.clone()) {
             Entry::Occupied(mut entry) => {
@@ -359,12 +386,17 @@ where
                     value.broadcast.send(&(self.map_message)(message));
                 }
 
-                value.recent_tweets.push(Arc::new(info.tweet));
-
-                if value.boss.image.is_none() && info.image.is_some() {
-                    // TODO: Image hash
-                    value.boss.image = info.image;
+                if value.boss.image.is_none() {
+                    if let Some(image_url) = info.image {
+                        self.hash_requester.request(
+                            value.boss.name.clone(),
+                            &image_url,
+                        );
+                        value.boss.image = Some(image_url);
+                    }
                 }
+
+                value.recent_tweets.push(Arc::new(info.tweet));
             }
             Entry::Vacant(entry) => {
                 let name = entry.key().clone();
@@ -387,6 +419,10 @@ where
 
                     let tweet_message = Message::Tweet(&info.tweet);
                     broadcast.send(&(self.map_message)(tweet_message));
+                }
+
+                if let Some(ref image_url) = boss.image {
+                    self.hash_requester.request(boss.name.clone(), &image_url);
                 }
 
                 let mut recent_tweets = CircularBuffer::with_capacity(self.tweet_history_size);
