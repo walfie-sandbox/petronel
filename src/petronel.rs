@@ -190,13 +190,13 @@ where
     hash_requester: ImageHashSender,
     id_pool: IdPool,
     events: Select<
-        OrElse<
-            mpsc::UnboundedReceiver<Event<Sub>>,
-            fn(()) -> Result<Event<Sub>>,
-            Result<Event<Sub>>,
-        >,
+        Map<S, fn(RaidInfo) -> Event<Sub>>,
         Select<
-            Map<S, fn(RaidInfo) -> Event<Sub>>,
+            OrElse<
+                mpsc::UnboundedReceiver<Event<Sub>>,
+                fn(()) -> Result<Event<Sub>>,
+                Result<Event<Sub>>,
+            >,
             Map<ImageHashReceiver<'a, C>, fn(BossImageHash) -> Event<Sub>>,
         >,
     >,
@@ -247,7 +247,7 @@ impl<Sub> Petronel<Sub> {
         let future = PetronelFuture {
             hash_requester,
             id_pool: IdPool::new(),
-            events: rx.select(stream_events.select(hash_events)),
+            events: stream_events.select(rx.select(hash_events)),
             bosses: HashMap::new(),
             tweet_history_size,
             requested_bosses: HashMap::new(),
