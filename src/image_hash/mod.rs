@@ -11,6 +11,12 @@ use image::{self, GenericImage};
 use model::{BossImageUrl, BossName};
 use std::collections::HashSet;
 
+#[derive(Debug)]
+pub struct BossImageHash {
+    boss_name: BossName,
+    image_hash: ImageHash,
+}
+
 pub fn channel<'a, C>(
     client: &'a Client<C>,
     concurrency: usize,
@@ -19,19 +25,19 @@ where
     C: 'a + Connect,
 {
     let (sink, stream) = mpsc::unbounded();
-    let sender = ImageHashSender { sink };
-    let receiver = Inner {
+    let inner = Inner {
         client,
         stream,
         outstanding: HashSet::new(),
     };
 
     (
-        sender,
-        ImageHashReceiver(receiver.buffer_unordered(concurrency)),
+        ImageHashSender { sink },
+        ImageHashReceiver(inner.buffer_unordered(concurrency)),
     )
 }
 
+#[derive(Debug)]
 pub struct ImageHashSender {
     sink: mpsc::UnboundedSender<(BossName, Uri)>,
 }
@@ -53,12 +59,12 @@ impl<'a, C> Stream for ImageHashReceiver<'a, C>
 where
     C: 'a + Connect,
 {
-    type Item = (BossName, ImageHash);
+    type Item = BossImageHash;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if let Some(result) = try_ready!(self.0.poll()) {
-            self.0.get_mut().outstanding.remove(&result.0); // TODO: Named
+            self.0.get_mut().outstanding.remove(&result.boss_name);
             Ok(Async::Ready(Some(result)))
         } else {
             Ok(Async::Ready(None))
@@ -67,6 +73,7 @@ where
 }
 
 
+#[derive(Debug)]
 #[must_use = "streams do nothing unless polled"]
 struct Inner<'a, C: 'a> {
     client: &'a Client<C>,
@@ -78,7 +85,7 @@ impl<'a, C> Stream for Inner<'a, C>
 where
     C: 'a + Connect,
 {
-    type Item = Box<Future<Item = (BossName, ImageHash), Error = Error>>;
+    type Item = Box<Future<Item = BossImageHash, Error = Error>>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -114,7 +121,7 @@ pub fn fetch_and_hash<C>(
     client: &Client<C>,
     boss_name: BossName,
     uri: Uri,
-) -> Box<Future<Item = (BossName, ImageHash), Error = Error>>
+) -> Box<Future<Item = BossImageHash, Error = Error>>
 where
     C: Connect,
 {
@@ -123,7 +130,12 @@ where
         .and_then(|resp| resp.body().concat2())
         .then(|r| r.chain_err(|| ErrorKind::ImageHash))
         .and_then(|bytes| crop_and_hash(&bytes).into_future())
-        .map(move |hash| (boss_name, hash));
+        .map(move |image_hash| {
+            BossImageHash {
+                boss_name,
+                image_hash,
+            }
+        });
 
     Box::new(result)
 }
