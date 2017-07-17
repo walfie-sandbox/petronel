@@ -9,6 +9,7 @@ use hyper::{Client, Uri};
 use hyper::client::Connect;
 use image::{self, GenericImage};
 use model::{BossImageUrl, BossName};
+use std::collections::HashSet;
 
 pub fn channel<'a, C>(
     client: &'a Client<C>,
@@ -19,7 +20,12 @@ where
 {
     let (sink, stream) = mpsc::unbounded();
     let sender = ImageHashSender { sink };
-    let receiver = ImageHashReceiverInner { client, stream };
+    let receiver = Inner {
+        client,
+        stream,
+        outstanding: HashSet::new(),
+    };
+
     (
         sender,
         ImageHashReceiver(receiver.buffer_unordered(concurrency)),
@@ -39,7 +45,7 @@ impl ImageHashSender {
 }
 
 #[must_use = "streams do nothing unless polled"]
-pub struct ImageHashReceiver<'a, C>(BufferUnordered<ImageHashReceiverInner<'a, C>>)
+pub struct ImageHashReceiver<'a, C>(BufferUnordered<Inner<'a, C>>)
 where
     C: 'a + Connect;
 
@@ -51,18 +57,24 @@ where
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.0.poll()
+        if let Some(result) = try_ready!(self.0.poll()) {
+            self.0.get_mut().outstanding.remove(&result.0); // TODO: Named
+            Ok(Async::Ready(Some(result)))
+        } else {
+            Ok(Async::Ready(None))
+        }
     }
 }
 
 
 #[must_use = "streams do nothing unless polled"]
-struct ImageHashReceiverInner<'a, C: 'a> {
+struct Inner<'a, C: 'a> {
     client: &'a Client<C>,
+    outstanding: HashSet<BossName>,
     stream: mpsc::UnboundedReceiver<(BossName, Uri)>,
 }
 
-impl<'a, C> Stream for ImageHashReceiverInner<'a, C>
+impl<'a, C> Stream for Inner<'a, C>
 where
     C: 'a + Connect,
 {
@@ -70,13 +82,18 @@ where
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        let polled = self.stream.poll().map_err(|_| ErrorKind::ImageHash);
+        loop {
+            let polled = self.stream.poll().map_err(|_| ErrorKind::ImageHash);
 
-        if let Some((boss_name, uri)) = try_ready!(polled) {
-            let result = fetch_and_hash(self.client, boss_name, uri);
-            Ok(Async::Ready(Some(result)))
-        } else {
-            Ok(Async::Ready(None))
+            if let Some((boss_name, uri)) = try_ready!(polled) {
+                if !self.outstanding.contains(&boss_name) {
+                    self.outstanding.insert(boss_name.clone());
+                    let result = fetch_and_hash(self.client, boss_name, uri);
+                    return Ok(Async::Ready(Some(result)));
+                }
+            } else {
+                return Ok(Async::Ready(None));
+            }
         }
     }
 }
