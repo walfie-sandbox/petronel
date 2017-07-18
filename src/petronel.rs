@@ -5,7 +5,10 @@ use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use futures::unsync::oneshot;
+use hyper::Client;
+use hyper::client::Connect;
 use id_pool::{Id as SubId, IdPool};
+use image_hash::{self, BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender};
 use model::{BossLevel, BossName, DateTime, Message, RaidBoss, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
@@ -18,6 +21,7 @@ const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 struct RaidBossEntry<Sub> {
     boss: RaidBoss,
     last_seen: DateTime,
+    image_hash: Option<ImageHash>,
     recent_tweets: CircularBuffer<Arc<RaidTweet>>,
     broadcast: Broadcast<SubId, Sub>,
 }
@@ -25,6 +29,10 @@ struct RaidBossEntry<Sub> {
 #[derive(Debug)]
 enum Event<Sub> {
     NewRaidInfo(RaidInfo),
+    NewImageHash {
+        boss_name: BossName,
+        image_hash: ImageHash,
+    },
 
     Follow { id: SubId, boss_name: BossName },
     Unfollow { id: SubId, boss_name: BossName },
@@ -176,14 +184,21 @@ impl<Sub> Petronel<Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<S, Sub, F> {
+pub struct PetronelFuture<'a, C, S, Sub, F>
+where
+    C: 'a + Connect,
+{
+    hash_requester: ImageHashSender,
     id_pool: IdPool,
     events: Select<
         Map<S, fn(RaidInfo) -> Event<Sub>>,
-        OrElse<
-            mpsc::UnboundedReceiver<Event<Sub>>,
-            fn(()) -> Result<Event<Sub>>,
-            Result<Event<Sub>>,
+        Select<
+            OrElse<
+                mpsc::UnboundedReceiver<Event<Sub>>,
+                fn(()) -> Result<Event<Sub>>,
+                Result<Event<Sub>>,
+            >,
+            Map<ImageHashReceiver<'a, C>, fn(BossImageHash) -> Event<Sub>>,
         >,
     >,
     bosses: HashMap<BossName, RaidBossEntry<Sub>>,
@@ -198,13 +213,22 @@ impl<Sub> Petronel<Sub> {
         Ok(Event::ReadError)
     }
 
+    fn boss_image_hash_to_event(msg: BossImageHash) -> Event<Sub> {
+        Event::NewImageHash {
+            boss_name: msg.boss_name,
+            image_hash: msg.image_hash,
+        }
+    }
+
     // TODO: Builder
-    pub fn from_stream<S, F>(
+    pub fn from_stream<'a, C, S, F>(
         stream: S,
         tweet_history_size: usize,
+        hyper: &'a Client<C>,
         map_message: F,
-    ) -> (Self, PetronelFuture<S, Sub, F>)
+    ) -> (Self, PetronelFuture<'a, C, S, Sub, F>)
     where
+        C: Connect,
         S: Stream<Item = RaidInfo, Error = Error>,
         Sub: Subscriber,
         F: Fn(Message) -> Sub::Item,
@@ -214,9 +238,17 @@ impl<Sub> Petronel<Sub> {
         let stream_events = stream.map(Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub>);
         let rx = rx.or_else(Self::events_read_error as fn(()) -> Result<Event<Sub>>);
 
+        // TODO: Configurable
+        let (hash_requester, hash_receiver) = image_hash::channel(hyper, 10);
+        let hash_events = hash_receiver.map(
+            Self::boss_image_hash_to_event as
+                fn(BossImageHash) -> Event<Sub>,
+        );
+
         let future = PetronelFuture {
+            hash_requester,
             id_pool: IdPool::new(),
-            events: stream_events.select(rx),
+            events: stream_events.select(rx.select(hash_events)),
             bosses: HashMap::new(),
             tweet_history_size,
             requested_bosses: HashMap::new(),
@@ -228,8 +260,9 @@ impl<Sub> Petronel<Sub> {
     }
 }
 
-impl<S, Sub, F> PetronelFuture<S, Sub, F>
+impl<'a, C, S, Sub, F> PetronelFuture<'a, C, S, Sub, F>
 where
+    C: Connect,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {
@@ -262,6 +295,13 @@ where
             NewRaidInfo(r) => {
                 self.handle_raid_info(r);
             }
+            NewImageHash {
+                boss_name,
+                image_hash,
+            } => {
+                self.handle_image_hash(boss_name, image_hash);
+            }
+
             GetBosses(tx) => {
                 let _ = tx.send(Vec::from_iter(self.bosses.values().map(|e| e.boss.clone())));
             }
@@ -331,6 +371,41 @@ where
         }
     }
 
+    fn handle_image_hash(&mut self, boss_name: BossName, image_hash: ImageHash) {
+        // TODO: Is it possible to avoid finding the same boss twice?
+        let (level, language) = match self.bosses.get_mut(&boss_name) {
+            Some(mut entry) => {
+                entry.image_hash = Some(image_hash);
+
+                (entry.boss.level, entry.boss.language)
+            }
+            None => return,
+        };
+
+        let mut matches = Vec::new();
+
+        for entry in self.bosses.values_mut() {
+            if entry.boss.level == level && entry.boss.language != language &&
+                entry.image_hash == Some(image_hash)
+            {
+                entry.boss.translations.insert(boss_name.clone());
+
+                let message = (self.map_message)(Message::BossUpdate(&entry.boss));
+                self.subscribers.send(&message);
+                matches.push(entry.boss.name.clone());
+            }
+        }
+
+        if !matches.is_empty() {
+            if let Some(mut entry) = self.bosses.get_mut(&boss_name) {
+                entry.boss.translations.extend(matches);
+
+                let message = (self.map_message)(Message::BossUpdate(&entry.boss));
+                self.subscribers.send(&message);
+            }
+        }
+    }
+
     fn handle_raid_info(&mut self, info: RaidInfo) {
         match self.bosses.entry(info.tweet.boss_name.clone()) {
             Entry::Occupied(mut entry) => {
@@ -343,12 +418,17 @@ where
                     value.broadcast.send(&(self.map_message)(message));
                 }
 
-                value.recent_tweets.push(Arc::new(info.tweet));
-
-                if value.boss.image.is_none() && info.image.is_some() {
-                    // TODO: Image hash
-                    value.boss.image = info.image;
+                if value.boss.image.is_none() {
+                    if let Some(image_url) = info.image {
+                        self.hash_requester.request(
+                            value.boss.name.clone(),
+                            &image_url,
+                        );
+                        value.boss.image = Some(image_url);
+                    }
                 }
+
+                value.recent_tweets.push(Arc::new(info.tweet));
             }
             Entry::Vacant(entry) => {
                 let name = entry.key().clone();
@@ -363,6 +443,7 @@ where
                     name: name,
                     image: info.image,
                     language: info.tweet.language,
+                    translations: HashSet::with_capacity(1),
                 };
 
                 {
@@ -373,6 +454,10 @@ where
                     broadcast.send(&(self.map_message)(tweet_message));
                 }
 
+                if let Some(ref image_url) = boss.image {
+                    self.hash_requester.request(boss.name.clone(), &image_url);
+                }
+
                 let mut recent_tweets = CircularBuffer::with_capacity(self.tweet_history_size);
                 recent_tweets.push(Arc::new(info.tweet));
 
@@ -381,15 +466,20 @@ where
                     broadcast,
                     last_seen,
                     recent_tweets,
+                    image_hash: None,
                 });
             }
         }
     }
 }
 
-impl<S, Sub, F> Future for PetronelFuture<S, Sub, F>
+impl<'a, C, S, Sub, F> Future for PetronelFuture<'a, C, S, Sub, F>
 where
-    S: Stream<Item = RaidInfo, Error = Error>,
+    C: Connect,
+    S: Stream<
+        Item = RaidInfo,
+        Error = Error,
+    >,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {

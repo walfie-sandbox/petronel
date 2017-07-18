@@ -1,5 +1,6 @@
 use chrono;
 use regex::Regex;
+use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
 use string_cache::DefaultAtom;
@@ -29,6 +30,7 @@ pub struct RaidBoss {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<BossImageUrl>,
     pub language: Language,
+    pub translations: HashSet<BossName>,
 }
 
 

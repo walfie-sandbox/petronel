@@ -1,12 +1,15 @@
 #[macro_use]
 extern crate error_chain;
 
+extern crate hyper;
+extern crate hyper_tls;
 extern crate futures;
 extern crate tokio_core;
 extern crate twitter_stream;
 extern crate petronel;
 
 use futures::{Future, Stream};
+use hyper_tls::HttpsConnector;
 use petronel::{EmptySubscriber, Petronel, Token};
 use petronel::error::*;
 use std::time::Duration;
@@ -28,12 +31,18 @@ quick_main!(|| -> Result<()> {
 
     let mut core = Core::new().chain_err(|| "failed to create Core")?;
 
-    let stream = petronel::raid::RaidInfoStream::with_handle(&core.handle(), &token);
+    let handle = core.handle();
 
-    let (client, future) = Petronel::<EmptySubscriber>::from_stream(stream, 20, |_| ());
+    let client = hyper::Client::configure()
+        .connector(HttpsConnector::new(4, &handle).chain_err(|| "HTTPS error")?)
+        .build(&handle);
+
+    let stream = petronel::raid::RaidInfoStream::with_client(&client, &token);
+
+    let (client, future) = Petronel::<EmptySubscriber>::from_stream(stream, 20, &client, |_| ());
 
     // Fetch boss list once per 5 seconds
-    let interval = Interval::new(Duration::new(5, 0), &core.handle())
+    let interval = Interval::new(Duration::new(5, 0), &handle)
         .chain_err(|| "failed to create interval")?
         .then(|r| r.chain_err(|| "interval failed"))
         .and_then(move |_| client.bosses())
