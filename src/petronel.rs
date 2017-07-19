@@ -8,7 +8,8 @@ use futures::unsync::oneshot;
 use hyper::Client;
 use hyper::client::Connect;
 use id_pool::{Id as SubId, IdPool};
-use image_hash::{self, BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender};
+use image_hash::{self, BossImageHash, HyperImageHasher, ImageHash, ImageHashReceiver,
+                 ImageHashSender, ImageHasher};
 use model::{BossLevel, BossName, DateTime, Message, RaidBoss, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
@@ -184,9 +185,9 @@ impl<Sub> Petronel<Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct PetronelFuture<'a, C, S, Sub, F>
+pub struct PetronelFuture<H, S, Sub, F>
 where
-    C: 'a + Connect,
+    H: ImageHasher,
 {
     hash_requester: ImageHashSender,
     id_pool: IdPool,
@@ -198,7 +199,7 @@ where
                 fn(()) -> Result<Event<Sub>>,
                 Result<Event<Sub>>,
             >,
-            Map<ImageHashReceiver<'a, C>, fn(BossImageHash) -> Event<Sub>>,
+            Map<ImageHashReceiver<H>, fn(BossImageHash) -> Event<Sub>>,
         >,
     >,
     bosses: HashMap<BossName, RaidBossEntry<Sub>>,
@@ -226,7 +227,7 @@ impl<Sub> Petronel<Sub> {
         tweet_history_size: usize,
         hyper: &'a Client<C>,
         map_message: F,
-    ) -> (Self, PetronelFuture<'a, C, S, Sub, F>)
+    ) -> (Self, PetronelFuture<HyperImageHasher<'a, C>, S, Sub, F>)
     where
         C: Connect,
         S: Stream<Item = RaidInfo, Error = Error>,
@@ -239,7 +240,8 @@ impl<Sub> Petronel<Sub> {
         let rx = rx.or_else(Self::events_read_error as fn(()) -> Result<Event<Sub>>);
 
         // TODO: Configurable
-        let (hash_requester, hash_receiver) = image_hash::channel(hyper, 10);
+        let hasher = HyperImageHasher(hyper);
+        let (hash_requester, hash_receiver) = image_hash::channel(hasher, 10);
         let hash_events = hash_receiver.map(
             Self::boss_image_hash_to_event as
                 fn(BossImageHash) -> Event<Sub>,
@@ -260,9 +262,9 @@ impl<Sub> Petronel<Sub> {
     }
 }
 
-impl<'a, C, S, Sub, F> PetronelFuture<'a, C, S, Sub, F>
+impl<H, S, Sub, F> PetronelFuture<H, S, Sub, F>
 where
-    C: Connect,
+    H: ImageHasher,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {
@@ -473,13 +475,10 @@ where
     }
 }
 
-impl<'a, C, S, Sub, F> Future for PetronelFuture<'a, C, S, Sub, F>
+impl<H, S, Sub, F> Future for PetronelFuture<H, S, Sub, F>
 where
-    C: Connect,
-    S: Stream<
-        Item = RaidInfo,
-        Error = Error,
-    >,
+    H: ImageHasher,
+    S: Stream<Item = RaidInfo, Error = Error>,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Sub::Item,
 {
