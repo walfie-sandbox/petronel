@@ -19,13 +19,11 @@ mod client;
 pub mod model;
 pub mod raid;
 pub mod error;
-mod petronel;
 mod id_pool;
 mod broadcast;
 mod circular_buffer;
 mod image_hash;
 
 pub use broadcast::{EmptySubscriber, SinkSubscriber, Subscriber};
-pub use client::client_builder::ClientBuilder;
-pub use petronel::{Petronel, Subscription};
+pub use client::{Client, ClientBuilder, Subscription};
 pub use twitter_stream::Token;

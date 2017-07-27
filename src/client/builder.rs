@@ -1,5 +1,6 @@
 use Token;
-use broadcast::{Broadcast, Subscriber};
+use broadcast::{Broadcast, EmptySubscriber, Subscriber};
+use client::{Client, ClientWorker, Event};
 use error::*;
 use futures::Stream;
 use futures::unsync::mpsc;
@@ -8,11 +9,11 @@ use hyper::client::Connect;
 use id_pool::IdPool;
 use image_hash::{self, BossImageHash, HyperImageHasher, ImageHasher};
 use model::Message;
-use petronel::{Event, Petronel, PetronelFuture};
 use raid::{RaidInfo, RaidInfoStream};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
+#[derive(Clone, Debug)]
 pub struct ClientBuilder<H, S, Sub, F> {
     stream: S,
     history_size: usize,
@@ -35,7 +36,8 @@ impl ClientBuilder<(), (), (), ()> {
     }
 }
 
-impl<'a, C> ClientBuilder<HyperImageHasher<'a, C>, RaidInfoStream, (), ()>
+impl<'a, C>
+    ClientBuilder<HyperImageHasher<'a, C>, RaidInfoStream, EmptySubscriber, fn(Message) -> ()>
 where
     C: Connect,
 {
@@ -48,7 +50,7 @@ where
             stream,
             history_size: DEFAULT_HISTORY_SIZE,
             image_hasher,
-            map_message: (),
+            map_message: (|_| ()) as fn(Message) -> (),
             subscriber_type: PhantomData,
         }
     }
@@ -109,7 +111,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
         }
     }
 
-    pub fn build(self) -> (Petronel<Sub>, PetronelFuture<H, S, Sub, F>)
+    pub fn build(self) -> (Client<Sub>, ClientWorker<H, S, Sub, F>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
         H: ImageHasher,
@@ -134,7 +136,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
              }) as fn(BossImageHash) -> Event<Sub>,
         );
 
-        let future = PetronelFuture {
+        let future = ClientWorker {
             hash_requester,
             id_pool: IdPool::new(),
             events: stream_events.select(rx.select(hash_events)),
@@ -145,6 +147,6 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
             map_message: self.map_message,
         };
 
-        (Petronel(tx), future)
+        (Client(tx), future)
     }
 }

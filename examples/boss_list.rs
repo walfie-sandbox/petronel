@@ -10,7 +10,7 @@ extern crate petronel;
 
 use futures::{Future, Stream};
 use hyper_tls::HttpsConnector;
-use petronel::{EmptySubscriber, Petronel, Token};
+use petronel::{ClientBuilder, Token};
 use petronel::error::*;
 use std::time::Duration;
 use tokio_core::reactor::{Core, Interval};
@@ -33,13 +33,11 @@ quick_main!(|| -> Result<()> {
 
     let handle = core.handle();
 
-    let client = hyper::Client::configure()
+    let hyper_client = hyper::Client::configure()
         .connector(HttpsConnector::new(4, &handle).chain_err(|| "HTTPS error")?)
         .build(&handle);
 
-    let stream = petronel::raid::RaidInfoStream::with_client(&client, &token);
-
-    let (client, future) = Petronel::<EmptySubscriber>::from_stream(stream, 20, &client, |_| ());
+    let (client, worker) = ClientBuilder::from_hyper_client(&hyper_client, &token).build();
 
     // Fetch boss list once per 5 seconds
     let interval = Interval::new(Duration::new(5, 0), &handle)
@@ -66,7 +64,7 @@ quick_main!(|| -> Result<()> {
             Ok(())
         });
 
-    core.run(future.join(interval)).chain_err(
+    core.run(worker.join(interval)).chain_err(
         || "stream failed",
     )?;
     Ok(())
