@@ -22,7 +22,7 @@ use futures::sync::mpsc;
 use hyper::header;
 use hyper::server::{Http, Request, Response, Service};
 use hyper_tls::HttpsConnector;
-use petronel::{Petronel, Subscriber, Subscription, Token};
+use petronel::{ClientBuilder, Petronel, Subscriber, Subscription, Token};
 use petronel::error::*;
 use petronel::model::Message;
 use regex::Regex;
@@ -46,6 +46,7 @@ quick_main!(|| -> Result<()> {
     let mut core = Core::new().chain_err(|| "failed to create Core")?;
     let handle = core.handle();
 
+    // TODO: Configurable port
     let bind_address = "127.0.0.1:3000".parse().chain_err(
         || "failed to parse address",
     )?;
@@ -56,16 +57,18 @@ quick_main!(|| -> Result<()> {
         .connector(HttpsConnector::new(4, &handle).chain_err(|| "HTTPS error")?)
         .build(&handle);
 
-    let stream = petronel::raid::RaidInfoStream::with_client(&client, &token);
-
-    let (petronel, petronel_worker) = Petronel::from_stream(stream, 10, &client, |msg| match msg {
-        Message::Heartbeat => "\n".into(),
-        other => {
-            let mut bytes = serde_json::to_vec(&other).unwrap();
-            bytes.push(b'\n');
-            bytes.into()
-        }
-    });
+    let (petronel, petronel_worker) = ClientBuilder::from_hyper_client(&client, &token)
+        .with_history_size(10)
+        .with_subscriber::<Sender>()
+        .map_message(|msg| match msg {
+            Message::Heartbeat => "\n".into(),
+            other => {
+                let mut bytes = serde_json::to_vec(&other).unwrap();
+                bytes.push(b'\n');
+                bytes.into()
+            }
+        })
+        .build();
 
     let petronel_server = PetronelServer(petronel.clone());
 

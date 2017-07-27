@@ -3,8 +3,7 @@ use circular_buffer::CircularBuffer;
 use error::*;
 use futures::{Async, Future, Poll, Stream};
 use futures::stream::{Map, OrElse, Select};
-use futures::unsync::mpsc;
-use futures::unsync::oneshot;
+use futures::unsync::{mpsc, oneshot};
 use hyper::Client;
 use hyper::client::Connect;
 use id_pool::{Id as SubId, IdPool};
@@ -19,7 +18,7 @@ use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
-struct RaidBossEntry<Sub> {
+pub(crate) struct RaidBossEntry<Sub> {
     boss: RaidBoss,
     last_seen: DateTime,
     image_hash: Option<ImageHash>,
@@ -28,7 +27,7 @@ struct RaidBossEntry<Sub> {
 }
 
 #[derive(Debug)]
-enum Event<Sub> {
+pub(crate) enum Event<Sub> {
     NewRaidInfo(RaidInfo),
     NewImageHash {
         boss_name: BossName,
@@ -67,7 +66,7 @@ impl<T> Future for AsyncResult<T> {
 }
 
 #[derive(Debug)]
-pub struct Petronel<Sub>(mpsc::UnboundedSender<Event<Sub>>);
+pub struct Petronel<Sub>(pub(crate) mpsc::UnboundedSender<Event<Sub>>);
 
 impl<Sub> Clone for Petronel<Sub> {
     fn clone(&self) -> Self {
@@ -189,9 +188,9 @@ pub struct PetronelFuture<H, S, Sub, F>
 where
     H: ImageHasher,
 {
-    hash_requester: ImageHashSender,
-    id_pool: IdPool,
-    events: Select<
+    pub(crate) hash_requester: ImageHashSender,
+    pub(crate) id_pool: IdPool,
+    pub(crate) events: Select<
         Map<S, fn(RaidInfo) -> Event<Sub>>,
         Select<
             OrElse<
@@ -202,11 +201,11 @@ where
             Map<ImageHashReceiver<H>, fn(BossImageHash) -> Event<Sub>>,
         >,
     >,
-    bosses: HashMap<BossName, RaidBossEntry<Sub>>,
-    tweet_history_size: usize,
-    requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
-    subscribers: Broadcast<SubId, Sub>,
-    map_message: F,
+    pub(crate) bosses: HashMap<BossName, RaidBossEntry<Sub>>,
+    pub(crate) tweet_history_size: usize,
+    pub(crate) requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
+    pub(crate) subscribers: Broadcast<SubId, Sub>,
+    pub(crate) map_message: F,
 }
 
 impl<Sub> Petronel<Sub> {

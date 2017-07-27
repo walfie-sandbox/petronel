@@ -15,6 +15,7 @@ extern crate string_cache;
 extern crate tokio_core;
 extern crate twitter_stream;
 
+mod client;
 pub mod model;
 pub mod raid;
 pub mod error;
@@ -25,5 +26,6 @@ mod circular_buffer;
 mod image_hash;
 
 pub use broadcast::{EmptySubscriber, SinkSubscriber, Subscriber};
+pub use client::client_builder::ClientBuilder;
 pub use petronel::{Petronel, Subscription};
 pub use twitter_stream::Token;
