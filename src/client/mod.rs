@@ -1,13 +1,17 @@
 mod builder;
 mod client;
+mod worker;
 mod subscription;
 
 pub use self::builder::ClientBuilder;
-pub use self::client::{Client, ClientWorker};
+pub use self::client::Client;
 pub use self::subscription::Subscription;
+pub use self::worker::ClientWorker;
 
 use broadcast::Broadcast;
 use circular_buffer::CircularBuffer;
+use error::*;
+use futures::{Future, Poll};
 use futures::unsync::oneshot;
 use id_pool::Id as SubId;
 use image_hash::ImageHash;
@@ -50,4 +54,14 @@ pub(crate) enum Event<Sub> {
     Heartbeat,
 
     ReadError,
+}
+
+pub struct AsyncResult<T>(oneshot::Receiver<T>);
+impl<T> Future for AsyncResult<T> {
+    type Item = T;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.0.poll().map_err(|_| ErrorKind::Closed.into())
+    }
 }
