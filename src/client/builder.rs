@@ -145,6 +145,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
             tweet_history_size: self.history_size,
             requested_bosses: HashMap::new(),
             subscribers: Broadcast::new(),
+            heartbeat: (self.map_message)(Message::Heartbeat),
             map_message: self.map_message,
         };
 

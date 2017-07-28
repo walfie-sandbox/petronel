@@ -19,6 +19,7 @@ const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 #[must_use = "futures do nothing unless polled"]
 pub struct Worker<H, S, Sub, F>
 where
+    Sub: Subscriber,
     H: ImageHasher,
 {
     pub(crate) hash_requester: ImageHashSender,
@@ -39,6 +40,7 @@ where
     pub(crate) requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
     pub(crate) subscribers: Broadcast<SubId, Sub>,
     pub(crate) map_message: F,
+    pub(crate) heartbeat: Sub::Item,
 }
 
 impl<H, S, Sub, F> Worker<H, S, Sub, F>
@@ -95,12 +97,8 @@ where
 
                 let _ = sender.send(backlog);
             }
+            Heartbeat => self.subscribers.send(&self.heartbeat),
             ReadError => {} // This should never happen
-            Heartbeat => {
-                // TODO: Map this just once and cache it
-                let message = (self.map_message)(Message::Heartbeat);
-                self.subscribers.send(&message)
-            }
         }
     }
 
