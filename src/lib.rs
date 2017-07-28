@@ -24,6 +24,6 @@ mod broadcast;
 mod circular_buffer;
 mod image_hash;
 
-pub use broadcast::{EmptySubscriber, SinkSubscriber, Subscriber};
+pub use broadcast::{NoOpSubscriber, Subscriber};
 pub use client::{Client, ClientBuilder, Subscription};
 pub use twitter_stream::Token;

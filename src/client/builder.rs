@@ -1,5 +1,5 @@
 use Token;
-use broadcast::{Broadcast, EmptySubscriber, Subscriber};
+use broadcast::{Broadcast, NoOpSubscriber, Subscriber};
 use client::{Client, ClientWorker, Event};
 use error::*;
 use futures::Stream;
@@ -23,6 +23,7 @@ pub struct ClientBuilder<H, S, Sub, F> {
 }
 
 const DEFAULT_HISTORY_SIZE: usize = 10;
+const MAX_CONCURRENT_IMAGE_HASHER_REQUESTS: usize = 5;
 
 impl ClientBuilder<(), (), (), ()> {
     pub fn new() -> Self {
@@ -37,7 +38,7 @@ impl ClientBuilder<(), (), (), ()> {
 }
 
 impl<'a, C>
-    ClientBuilder<HyperImageHasher<'a, C>, RaidInfoStream, EmptySubscriber, fn(Message) -> ()>
+    ClientBuilder<HyperImageHasher<'a, C>, RaidInfoStream, NoOpSubscriber, fn(Message) -> ()>
 where
     C: Connect,
 {
@@ -125,8 +126,8 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
         );
         let rx = rx.or_else((|()| Ok(Event::ReadError)) as fn(()) -> Result<Event<Sub>>);
 
-        // TODO: Configurable
-        let (hash_requester, hash_receiver) = image_hash::channel(self.image_hasher, 10);
+        let (hash_requester, hash_receiver) =
+            image_hash::channel(self.image_hasher, MAX_CONCURRENT_IMAGE_HASHER_REQUESTS);
         let hash_events = hash_receiver.map(
             (|msg| {
                  Event::NewImageHash {
