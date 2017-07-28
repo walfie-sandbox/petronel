@@ -22,7 +22,7 @@ use futures::sync::mpsc;
 use hyper::header;
 use hyper::server::{Http, Request, Response, Service};
 use hyper_tls::HttpsConnector;
-use petronel::{Petronel, Subscriber, Subscription, Token};
+use petronel::{Client, ClientBuilder, Subscriber, Subscription, Token};
 use petronel::error::*;
 use petronel::model::Message;
 use regex::Regex;
@@ -46,28 +46,32 @@ quick_main!(|| -> Result<()> {
     let mut core = Core::new().chain_err(|| "failed to create Core")?;
     let handle = core.handle();
 
+    // TODO: Configurable port
     let bind_address = "127.0.0.1:3000".parse().chain_err(
         || "failed to parse address",
     )?;
     let listener = tokio_core::net::TcpListener::bind(&bind_address, &handle)
         .chain_err(|| "failed to bind TCP listener")?;
 
-    let client = hyper::Client::configure()
+    let hyper_client = hyper::Client::configure()
         .connector(HttpsConnector::new(4, &handle).chain_err(|| "HTTPS error")?)
         .build(&handle);
 
-    let stream = petronel::raid::RaidInfoStream::with_client(&client, &token);
+    let (petronel_client, petronel_worker) =
+        ClientBuilder::from_hyper_client(&hyper_client, &token)
+            .with_history_size(10)
+            .with_subscriber::<Sender>()
+            .map_message(|msg| match msg {
+                Message::Heartbeat => "\n".into(),
+                other => {
+                    let mut bytes = serde_json::to_vec(&other).unwrap();
+                    bytes.push(b'\n');
+                    bytes.into()
+                }
+            })
+            .build();
 
-    let (petronel, petronel_worker) = Petronel::from_stream(stream, 10, &client, |msg| match msg {
-        Message::Heartbeat => "\n".into(),
-        other => {
-            let mut bytes = serde_json::to_vec(&other).unwrap();
-            bytes.push(b'\n');
-            bytes.into()
-        }
-    });
-
-    let petronel_server = PetronelServer(petronel.clone());
+    let petronel_server = PetronelServer(petronel_client.clone());
 
     println!("Listening on {}", bind_address);
 
@@ -83,7 +87,7 @@ quick_main!(|| -> Result<()> {
     // Send heartbeat every 30 seconds
     let heartbeat = Interval::new(Duration::new(30, 0), &core.handle())
         .chain_err(|| "failed to create Interval")?
-        .for_each(move |_| Ok(petronel.heartbeat()))
+        .for_each(move |_| Ok(petronel_client.heartbeat()))
         .then(|r| r.chain_err(|| "heartbeat failed"));
 
     core.run(server.join3(petronel_worker, heartbeat))
@@ -105,7 +109,7 @@ impl Subscriber for Sender {
     }
 }
 
-struct PetronelServer(Petronel<Sender>);
+struct PetronelServer(Client<Sender>);
 
 impl Clone for PetronelServer {
     fn clone(&self) -> Self {

@@ -15,15 +15,15 @@ extern crate string_cache;
 extern crate tokio_core;
 extern crate twitter_stream;
 
+mod client;
 pub mod model;
 pub mod raid;
 pub mod error;
-mod petronel;
 mod id_pool;
 mod broadcast;
 mod circular_buffer;
 mod image_hash;
 
-pub use broadcast::{EmptySubscriber, SinkSubscriber, Subscriber};
-pub use petronel::{Petronel, Subscription};
+pub use broadcast::{NoOpSubscriber, Subscriber};
+pub use client::{Client, ClientBuilder, Subscription};
 pub use twitter_stream::Token;

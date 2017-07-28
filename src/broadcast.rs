@@ -8,36 +8,23 @@ pub trait Subscriber {
     fn send(&mut self, message: &Self::Item) -> Result<(), ()>;
 }
 
-pub struct SinkSubscriber<T>(T);
-
-impl<T> From<T> for SinkSubscriber<T>
+impl<S> Subscriber for S
 where
-    T: Sink,
-    T::SinkItem: Clone,
+    S: Sink,
+    S::SinkItem: Clone,
 {
-    fn from(sink: T) -> Self {
-        SinkSubscriber(sink)
-    }
-}
-
-impl<T> Subscriber for SinkSubscriber<T>
-where
-    T: Sink,
-    T::SinkItem: Clone,
-{
-    type Item = T::SinkItem;
+    type Item = S::SinkItem;
 
     fn send(&mut self, message: &Self::Item) -> Result<(), ()> {
-        self.0
-            .start_send(message.clone().into())
-            .and_then(|_| self.0.poll_complete().map(|_| ()))
+        self.start_send(message.clone().into())
+            .and_then(|_| self.poll_complete().map(|_| ()))
             .map_err(|_| ())
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct EmptySubscriber;
-impl Subscriber for EmptySubscriber {
+pub struct NoOpSubscriber;
+impl Subscriber for NoOpSubscriber {
     type Item = ();
 
     fn send(&mut self, _message: &Self::Item) -> Result<(), ()> {
