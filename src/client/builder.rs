@@ -1,6 +1,6 @@
 use Token;
 use broadcast::{Broadcast, NoOpSubscriber, Subscriber};
-use client::{Client, ClientWorker, Event};
+use client::{Client, Event, Worker};
 use error::*;
 use futures::Stream;
 use futures::unsync::mpsc;
@@ -112,7 +112,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
         }
     }
 
-    pub fn build(self) -> (Client<Sub>, ClientWorker<H, S, Sub, F>)
+    pub fn build(self) -> (Client<Sub>, Worker<H, S, Sub, F>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
         H: ImageHasher,
@@ -137,7 +137,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
              }) as fn(BossImageHash) -> Event<Sub>,
         );
 
-        let future = ClientWorker {
+        let future = Worker {
             hash_requester,
             id_pool: IdPool::new(),
             events: stream_events.select(rx.select(hash_events)),

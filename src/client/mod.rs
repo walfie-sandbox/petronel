@@ -6,7 +6,7 @@ mod subscription;
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
 pub use self::subscription::Subscription;
-pub use self::worker::ClientWorker;
+pub use self::worker::Worker;
 
 use broadcast::Broadcast;
 use circular_buffer::CircularBuffer;

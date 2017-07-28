@@ -17,7 +17,7 @@ use std::sync::Arc;
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
 #[must_use = "futures do nothing unless polled"]
-pub struct ClientWorker<H, S, Sub, F>
+pub struct Worker<H, S, Sub, F>
 where
     H: ImageHasher,
 {
@@ -41,7 +41,7 @@ where
     pub(crate) map_message: F,
 }
 
-impl<H, S, Sub, F> ClientWorker<H, S, Sub, F>
+impl<H, S, Sub, F> Worker<H, S, Sub, F>
 where
     H: ImageHasher,
     Sub: Subscriber + Clone,
@@ -254,7 +254,7 @@ where
     }
 }
 
-impl<H, S, Sub, F> Future for ClientWorker<H, S, Sub, F>
+impl<H, S, Sub, F> Future for Worker<H, S, Sub, F>
 where
     H: ImageHasher,
     S: Stream<Item = RaidInfo, Error = Error>,
