@@ -204,39 +204,35 @@ impl Service for PetronelServer {
             Box::new(resp) as Self::Future
         } else if let Some(captures) = REGEX_BOSS.captures(&path) {
             let name: BossName = captures.name("boss_name").unwrap().as_str().into();
+            let method = req.method();
 
-            match req.method() {
-                &hyper::Method::Delete => {
-                    self.0.remove_bosses(move |ref meta| meta.boss.name == name);
+            if method == &hyper::Method::Delete {
+                self.0.remove_bosses(move |ref meta| meta.boss.name == name);
 
-                    let resp = Response::new().with_status(StatusCode::Accepted);
-                    Box::new(futures::future::ok(resp)) as Self::Future
-                }
-                &hyper::Method::Get => {
-                    let resp = self.0
-                        .bosses()
-                        .map(move |bosses| if let Some(boss) = bosses.iter().find(
-                            |boss| {
-                                boss.name == name
-                            },
-                        )
-                        {
+                let resp = Response::new().with_status(StatusCode::Accepted);
+                Box::new(futures::future::ok(resp)) as Self::Future
+            } else if method == &hyper::Method::Get {
+                let resp = self.0
+                    .bosses()
+                    .map(move |bosses| {
+                        let find_boss = bosses.iter().find(|boss| boss.name == name);
+
+                        if let Some(boss) = find_boss {
                             response(StatusCode::Ok, boss)
                         } else {
                             response(
                                 StatusCode::NotFound,
                                 &JsonError { error: "boss not found".to_string() },
                             )
-                        })
-                        .map_err(|_| hyper::Error::Incomplete);
+                        }
+                    })
+                    .map_err(|_| hyper::Error::Incomplete);
 
-                    Box::new(resp) as Self::Future
-                }
-                other => {
-                    let error = format!("unrecognized endpoint: {} {}", other, path);
-                    let resp = response(StatusCode::NotFound, &JsonError { error });
-                    Box::new(futures::future::ok(resp)) as Self::Future
-                }
+                Box::new(resp) as Self::Future
+            } else {
+                let error = format!("unrecognized endpoint: {} {}", method, path);
+                let resp = response(StatusCode::NotFound, &JsonError { error });
+                Box::new(futures::future::ok(resp)) as Self::Future
             }
         } else if let Some(captures) = REGEX_BOSS_TWEETS.captures(&path) {
             let name = captures.name("boss_name").unwrap().as_str();
