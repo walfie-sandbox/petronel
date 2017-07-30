@@ -39,16 +39,16 @@ where
     pub(crate) tweet_history_size: usize,
     pub(crate) requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
     pub(crate) subscribers: Broadcast<SubId, Sub>,
-    pub(crate) map_message: F,
-    pub(crate) cached_boss_list: Sub::Item,
-    pub(crate) heartbeat: Sub::Item,
+    pub(crate) filter_map_message: F,
+    pub(crate) cached_boss_list: Option<Sub::Item>,
+    pub(crate) heartbeat: Option<Sub::Item>,
 }
 
 impl<H, S, Sub, F> Worker<H, S, Sub, F>
 where
     H: ImageHasher,
     Sub: Subscriber + Clone,
-    F: Fn(Message) -> Sub::Item,
+    F: Fn(Message) -> Option<Sub::Item>,
 {
     fn handle_event(&mut self, event: Event<Sub>) {
         use super::Event::*;
@@ -77,7 +77,7 @@ where
             }
             SubscriberGetBosses(id) => {
                 if let Some(sub) = self.subscribers.get_mut(&id) {
-                    let _ = sub.send(&self.cached_boss_list);
+                    let _ = sub.maybe_send(self.cached_boss_list.as_ref());
                 }
             }
             SubscriberGetTweets { id, boss_name } => {
@@ -86,12 +86,12 @@ where
                         e.recent_tweets.as_unordered_slice()
                     });
 
-                    let message = (self.map_message)(Message::TweetList(tweets));
+                    let message = (self.filter_map_message)(Message::TweetList(tweets));
 
-                    let _ = sub.send(&message);
+                    let _ = sub.maybe_send(message.as_ref());
                 }
             }
-            SubscriberHeartbeat => self.subscribers.send(&self.heartbeat),
+            SubscriberHeartbeat => self.subscribers.maybe_send(self.heartbeat.as_ref()),
 
             NewRaidInfo(r) => {
                 self.handle_raid_info(r);
@@ -186,8 +186,8 @@ where
             {
                 entry.boss.translations.insert(boss_name.clone());
 
-                let message = (self.map_message)(Message::BossUpdate(&entry.boss));
-                self.subscribers.send(&message);
+                let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss));
+                self.subscribers.maybe_send(message.as_ref());
                 matches.push(entry.boss.name.clone());
             }
         }
@@ -196,8 +196,8 @@ where
             if let Some(mut entry) = self.bosses.get_mut(&boss_name) {
                 entry.boss.translations.extend(matches);
 
-                let message = (self.map_message)(Message::BossUpdate(&entry.boss));
-                self.subscribers.send(&message);
+                let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss));
+                self.subscribers.maybe_send(message.as_ref());
             }
 
             self.update_cached_boss_list();
@@ -210,7 +210,7 @@ where
             .map(|entry| &entry.boss)
             .collect::<Vec<_>>();
 
-        self.cached_boss_list = (self.map_message)(Message::BossList(&updated))
+        self.cached_boss_list = (self.filter_map_message)(Message::BossList(&updated))
     }
 
     fn handle_raid_info(&mut self, info: RaidInfo) {
@@ -222,7 +222,9 @@ where
 
                 {
                     let message = Message::Tweet(&info.tweet);
-                    value.broadcast.send(&(self.map_message)(message));
+                    value.broadcast.maybe_send(
+                        (self.filter_map_message)(message).as_ref(),
+                    );
                 }
 
                 if value.boss.image.is_none() {
@@ -256,10 +258,13 @@ where
 
                 {
                     let boss_message = Message::BossUpdate(&boss);
-                    self.subscribers.send(&(self.map_message)(boss_message));
+                    self.subscribers.maybe_send(
+                        (self.filter_map_message)(boss_message)
+                            .as_ref(),
+                    );
 
                     let tweet_message = Message::Tweet(&info.tweet);
-                    broadcast.send(&(self.map_message)(tweet_message));
+                    broadcast.maybe_send((self.filter_map_message)(tweet_message).as_ref());
                 }
 
                 if let Some(ref image_url) = boss.image {
@@ -292,7 +297,7 @@ where
     H: ImageHasher,
     S: Stream<Item = RaidInfo, Error = Error>,
     Sub: Subscriber + Clone,
-    F: Fn(Message) -> Sub::Item,
+    F: Fn(Message) -> Option<Sub::Item>,
 {
     type Item = ();
     type Error = Error;

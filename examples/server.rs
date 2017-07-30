@@ -61,19 +61,20 @@ quick_main!(|| -> Result<()> {
         ClientBuilder::from_hyper_client(&hyper_client, &token)
             .with_history_size(10)
             .with_subscriber::<Sender>()
-            .map_message(|msg| match msg {
-                Message::Heartbeat => "\n".into(),
+            .filter_map_message(|msg| match msg {
+                // Don't emit anything for heartbeat messages
+                Message::Heartbeat => None,
                 Message::TweetList(tweets) => {
                     let mut tweet_vec = tweets.to_vec();
                     tweet_vec.sort_by_key(|t| t.created_at);
                     let mut bytes = serde_json::to_vec(&tweet_vec).unwrap();
                     bytes.push(b'\n');
-                    bytes.into()
+                    Some(bytes.into())
                 }
                 other => {
                     let mut bytes = serde_json::to_vec(&other).unwrap();
                     bytes.push(b'\n');
-                    bytes.into()
+                    Some(bytes.into())
                 }
             })
             .build();
