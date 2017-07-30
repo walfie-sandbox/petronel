@@ -53,6 +53,10 @@ impl<Sub> Client<Sub> {
         self.send(Event::SubscriberGetBosses(id))
     }
 
+    pub(crate) fn subscriber_get_tweets(&self, id: SubId, boss_name: BossName) {
+        self.send(Event::SubscriberGetTweets { id, boss_name })
+    }
+
     pub fn bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
         self.request(Event::ClientGetBosses)
     }

@@ -24,7 +24,7 @@ use hyper::server::{Http, Request, Response, Service};
 use hyper_tls::HttpsConnector;
 use petronel::{Client, ClientBuilder, Subscriber, Subscription, Token};
 use petronel::error::*;
-use petronel::model::Message;
+use petronel::model::{BossName, Message};
 use regex::Regex;
 use std::time::Duration;
 use tokio_core::reactor::{Core, Interval};
@@ -63,6 +63,13 @@ quick_main!(|| -> Result<()> {
             .with_subscriber::<Sender>()
             .map_message(|msg| match msg {
                 Message::Heartbeat => "\n".into(),
+                Message::TweetList(tweets) => {
+                    let mut tweet_vec = tweets.to_vec();
+                    tweet_vec.sort_by_key(|t| t.created_at);
+                    let mut bytes = serde_json::to_vec(&tweet_vec).unwrap();
+                    bytes.push(b'\n');
+                    bytes.into()
+                }
                 other => {
                     let mut bytes = serde_json::to_vec(&other).unwrap();
                     bytes.push(b'\n');
@@ -187,7 +194,7 @@ impl Service for PetronelServer {
         } else if let Some(captures) = REGEX_BOSS_TWEETS.captures(&path) {
             let name = captures.name("boss_name").unwrap().as_str();
             let resp = self.0
-                .recent_tweets(name)
+                .tweets(name)
                 .map(|tweets| {
                     let json = serde_json::to_string(
                         &tweets.into_iter().map(|t| t).collect::<Vec<_>>(),
@@ -202,13 +209,14 @@ impl Service for PetronelServer {
 
             Box::new(resp) as Self::Future
         } else if let Some(captures) = REGEX_BOSS_STREAM.captures(&path) {
-            let name = captures.name("boss_name").unwrap().as_str().to_string();
+            let name: BossName = captures.name("boss_name").unwrap().as_str().into();
 
             let (sender, chunks) = hyper::Body::pair();
 
             let response = self.0
                 .subscribe(Sender(sender))
                 .map(move |mut subscription| {
+                    subscription.get_tweets(name.clone());
                     subscription.follow(name);
 
                     let body = Body {

@@ -38,6 +38,7 @@ pub(crate) enum Event<Sub> {
     SubscriberFollow { id: SubId, boss_name: BossName },
     SubscriberUnfollow { id: SubId, boss_name: BossName },
     SubscriberGetBosses(SubId),
+    SubscriberGetTweets { id: SubId, boss_name: BossName },
     SubscriberHeartbeat,
 
     SubscriberSubscribe {

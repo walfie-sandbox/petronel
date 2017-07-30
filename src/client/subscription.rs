@@ -36,6 +36,17 @@ impl<Sub> Subscription<Sub> {
         self.client.subscriber_get_bosses(self.id.clone())
     }
 
+    pub fn get_tweets<B>(&self, boss_name: B)
+    where
+        B: Into<BossName>,
+    {
+        self.client.subscriber_get_tweets(
+            self.id.clone(),
+            boss_name.into(),
+        )
+    }
+
+
     #[inline]
     pub fn unsubscribe(self) {
         self.non_consuming_unsubscribe()
