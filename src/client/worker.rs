@@ -1,4 +1,4 @@
-use super::{Event, RaidBossEntry, Subscription};
+use super::{Event, RaidBossMetadata, Subscription};
 use broadcast::{Broadcast, Subscriber};
 use circular_buffer::CircularBuffer;
 use error::*;
@@ -7,7 +7,7 @@ use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use id_pool::{Id as SubId, IdPool};
 use image_hash::{BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender, ImageHasher};
-use model::{BossLevel, BossName, Message, RaidBoss};
+use model::{BossLevel, BossName, Message, RaidBoss, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
@@ -15,6 +15,12 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
+
+pub struct RaidBossEntry<Sub> {
+    boss_data: RaidBossMetadata,
+    recent_tweets: CircularBuffer<Arc<RaidTweet>>,
+    broadcast: Broadcast<SubId, Sub>,
+}
 
 #[must_use = "futures do nothing unless polled"]
 pub struct Worker<H, S, Sub, F>
@@ -104,7 +110,9 @@ where
             }
 
             ClientGetBosses(tx) => {
-                let _ = tx.send(Vec::from_iter(self.bosses.values().map(|e| e.boss.clone())));
+                let _ = tx.send(Vec::from_iter(
+                    self.bosses.values().map(|e| e.boss_data.boss.clone()),
+                ));
             }
             ClientGetTweets { boss_name, sender } => {
                 let tweets = self.bosses.get(&boss_name).map_or(vec![], |e| {
@@ -171,9 +179,9 @@ where
         // TODO: Is it possible to avoid finding the same boss twice?
         let (level, language) = match self.bosses.get_mut(&boss_name) {
             Some(mut entry) => {
-                entry.image_hash = Some(image_hash);
+                entry.boss_data.image_hash = Some(image_hash);
 
-                (entry.boss.level, entry.boss.language)
+                (entry.boss_data.boss.level, entry.boss_data.boss.language)
             }
             None => return,
         };
@@ -181,22 +189,22 @@ where
         let mut matches = Vec::new();
 
         for entry in self.bosses.values_mut() {
-            if entry.boss.level == level && entry.boss.language != language &&
-                entry.image_hash == Some(image_hash)
+            if entry.boss_data.boss.level == level && entry.boss_data.boss.language != language &&
+                entry.boss_data.image_hash == Some(image_hash)
             {
-                entry.boss.translations.insert(boss_name.clone());
+                entry.boss_data.boss.translations.insert(boss_name.clone());
 
-                let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss));
+                let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss_data.boss));
                 self.subscribers.maybe_send(message.as_ref());
-                matches.push(entry.boss.name.clone());
+                matches.push(entry.boss_data.boss.name.clone());
             }
         }
 
         if !matches.is_empty() {
             if let Some(mut entry) = self.bosses.get_mut(&boss_name) {
-                entry.boss.translations.extend(matches);
+                entry.boss_data.boss.translations.extend(matches);
 
-                let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss));
+                let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss_data.boss));
                 self.subscribers.maybe_send(message.as_ref());
             }
 
@@ -207,7 +215,7 @@ where
     fn update_cached_boss_list(&mut self) {
         let updated = self.bosses
             .values()
-            .map(|entry| &entry.boss)
+            .map(|entry| &entry.boss_data.boss)
             .collect::<Vec<_>>();
 
         self.cached_boss_list = (self.filter_map_message)(Message::BossList(&updated))
@@ -218,7 +226,7 @@ where
             Entry::Occupied(mut entry) => {
                 let value = entry.get_mut();
 
-                value.last_seen = info.tweet.created_at;
+                value.boss_data.last_seen = info.tweet.created_at;
 
                 {
                     let message = Message::Tweet(&info.tweet);
@@ -227,13 +235,13 @@ where
                     );
                 }
 
-                if value.boss.image.is_none() {
+                if value.boss_data.boss.image.is_none() {
                     if let Some(image_url) = info.image {
                         self.hash_requester.request(
-                            value.boss.name.clone(),
+                            value.boss_data.boss.name.clone(),
                             &image_url,
                         );
-                        value.boss.image = Some(image_url);
+                        value.boss_data.boss.image = Some(image_url);
                     }
                 }
 
@@ -275,11 +283,13 @@ where
                 recent_tweets.push(Arc::new(info.tweet));
 
                 entry.insert(RaidBossEntry {
-                    boss,
+                    boss_data: RaidBossMetadata {
+                        boss,
+                        last_seen,
+                        image_hash: None,
+                    },
                     broadcast,
-                    last_seen,
                     recent_tweets,
-                    image_hash: None,
                 });
 
                 true

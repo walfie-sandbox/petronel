@@ -8,8 +8,6 @@ pub use self::client::Client;
 pub use self::subscription::Subscription;
 pub use self::worker::Worker;
 
-use broadcast::Broadcast;
-use circular_buffer::CircularBuffer;
 use error::*;
 use futures::{Future, Poll};
 use futures::unsync::oneshot;
@@ -19,12 +17,10 @@ use model::{BossName, DateTime, RaidBoss, RaidTweet};
 use raid::RaidInfo;
 use std::sync::Arc;
 
-pub(crate) struct RaidBossEntry<Sub> {
+pub(crate) struct RaidBossMetadata {
     boss: RaidBoss,
     last_seen: DateTime,
     image_hash: Option<ImageHash>,
-    recent_tweets: CircularBuffer<Arc<RaidTweet>>,
-    broadcast: Broadcast<SubId, Sub>,
 }
 
 #[derive(Debug)]
