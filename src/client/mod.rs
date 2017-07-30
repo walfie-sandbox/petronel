@@ -7,7 +7,6 @@ pub use self::builder::ClientBuilder;
 pub use self::client::Client;
 pub use self::subscription::Subscription;
 pub use self::worker::Worker;
-
 use error::*;
 use futures::{Future, Poll};
 use futures::unsync::oneshot;
@@ -15,6 +14,8 @@ use id_pool::Id as SubId;
 use image_hash::ImageHash;
 use model::{BossName, RaidBoss, RaidBossMetadata, RaidTweet};
 use raid::RaidInfo;
+
+use std::fmt;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -44,8 +45,17 @@ pub(crate) enum Event<Sub> {
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
     ClientExportMetadata(oneshot::Sender<Vec<RaidBossMetadata>>),
+    ClientRemoveBosses(RemoveBossesPredicate),
 
     ClientReadError,
+}
+
+// This is only here because `Debug` isn't implemented for `fn(&T)`
+pub(crate) struct RemoveBossesPredicate(fn(&RaidBossMetadata) -> bool);
+impl fmt::Debug for RemoveBossesPredicate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+        write!(f, "function")
+    }
 }
 
 pub struct AsyncResult<T>(oneshot::Receiver<T>);

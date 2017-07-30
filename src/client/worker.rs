@@ -128,8 +128,15 @@ where
                     self.bosses.values().map(|e| e.boss_data.clone()),
                 ));
             }
+            ClientRemoveBosses(f) => {
+                self.remove_bosses(f.0);
+            }
             ClientReadError => {} // This should never happen
         }
+    }
+
+    fn remove_bosses(&mut self, f: fn(&RaidBossMetadata) -> bool) {
+        self.bosses.retain(|_, entry| !(f)(&entry.boss_data));
     }
 
     fn subscribe(&mut self, subscriber: Sub) -> SubId {
