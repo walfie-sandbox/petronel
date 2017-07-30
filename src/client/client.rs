@@ -57,12 +57,12 @@ impl<Sub> Client<Sub> {
         self.request(Event::ClientGetBosses)
     }
 
-    pub fn recent_tweets<B>(&self, boss_name: B) -> AsyncResult<Vec<Arc<RaidTweet>>>
+    pub fn tweets<B>(&self, boss_name: B) -> AsyncResult<Vec<Arc<RaidTweet>>>
     where
         B: Into<BossName>,
     {
         self.request(|tx| {
-            Event::ClientGetRecentTweets {
+            Event::ClientGetTweets {
                 boss_name: boss_name.into(),
                 sender: tx,
             }
