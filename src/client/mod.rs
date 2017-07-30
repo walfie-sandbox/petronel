@@ -50,7 +50,7 @@ pub(crate) enum Event<Sub> {
     ClientReadError,
 }
 
-// This is only here because `Debug` isn't implemented for `fn(&T)`
+// This is only here because `Debug` isn't implemented for `Fn(&T)`
 pub(crate) struct RemoveBossesPredicate(Box<Fn(&RaidBossMetadata) -> bool>);
 impl fmt::Debug for RemoveBossesPredicate {
     fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
