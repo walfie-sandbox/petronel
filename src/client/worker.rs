@@ -80,6 +80,17 @@ where
                     let _ = sub.send(&self.cached_boss_list);
                 }
             }
+            SubscriberGetTweets { id, boss_name } => {
+                if let Some(sub) = self.subscribers.get_mut(&id) {
+                    let tweets = self.bosses.get(&boss_name).map_or(&[][..], |e| {
+                        e.recent_tweets.as_unordered_slice()
+                    });
+
+                    let message = (self.map_message)(Message::TweetList(tweets));
+
+                    let _ = sub.send(&message);
+                }
+            }
             SubscriberHeartbeat => self.subscribers.send(&self.heartbeat),
 
             NewRaidInfo(r) => {
@@ -95,7 +106,7 @@ where
             ClientGetBosses(tx) => {
                 let _ = tx.send(Vec::from_iter(self.bosses.values().map(|e| e.boss.clone())));
             }
-            ClientGetRecentTweets { boss_name, sender } => {
+            ClientGetTweets { boss_name, sender } => {
                 let tweets = self.bosses.get(&boss_name).map_or(vec![], |e| {
                     // Returns recent tweets, unsorted. The client is
                     // expected to do the sorting on their end.

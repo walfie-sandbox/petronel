@@ -38,6 +38,7 @@ pub(crate) enum Event<Sub> {
     SubscriberFollow { id: SubId, boss_name: BossName },
     SubscriberUnfollow { id: SubId, boss_name: BossName },
     SubscriberGetBosses(SubId),
+    SubscriberGetTweets { id: SubId, boss_name: BossName },
     SubscriberHeartbeat,
 
     SubscriberSubscribe {
@@ -48,7 +49,7 @@ pub(crate) enum Event<Sub> {
     SubscriberUnsubscribe(SubId),
 
     ClientGetBosses(oneshot::Sender<Vec<RaidBoss>>),
-    ClientGetRecentTweets {
+    ClientGetTweets {
         boss_name: BossName,
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
