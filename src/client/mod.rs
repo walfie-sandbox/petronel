@@ -37,6 +37,7 @@ pub(crate) enum Event<Sub> {
 
     Follow { id: SubId, boss_name: BossName },
     Unfollow { id: SubId, boss_name: BossName },
+    GetCachedBossList(SubId),
 
     Subscribe {
         subscriber: Sub,

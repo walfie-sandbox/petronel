@@ -40,6 +40,7 @@ where
     pub(crate) requested_bosses: HashMap<BossName, Broadcast<SubId, Sub>>,
     pub(crate) subscribers: Broadcast<SubId, Sub>,
     pub(crate) map_message: F,
+    pub(crate) cached_boss_list: Sub::Item,
     pub(crate) heartbeat: Sub::Item,
 }
 
@@ -74,6 +75,11 @@ where
             Unfollow { id, boss_name } => {
                 self.unfollow(&id, boss_name);
             }
+            GetCachedBossList(id) => {
+                if let Some(sub) = self.subscribers.get_mut(&id) {
+                    let _ = sub.send(&self.cached_boss_list);
+                }
+            }
 
             NewRaidInfo(r) => {
                 self.handle_raid_info(r);
@@ -89,13 +95,13 @@ where
                 let _ = tx.send(Vec::from_iter(self.bosses.values().map(|e| e.boss.clone())));
             }
             GetRecentTweets { boss_name, sender } => {
-                let backlog = self.bosses.get(&boss_name).map_or(vec![], |e| {
+                let tweets = self.bosses.get(&boss_name).map_or(vec![], |e| {
                     // Returns recent tweets, unsorted. The client is
                     // expected to do the sorting on their end.
                     e.recent_tweets.as_unordered_slice().to_vec()
                 });
 
-                let _ = sender.send(backlog);
+                let _ = sender.send(tweets);
             }
             Heartbeat => self.subscribers.send(&self.heartbeat),
             ReadError => {} // This should never happen
@@ -182,11 +188,22 @@ where
                 let message = (self.map_message)(Message::BossUpdate(&entry.boss));
                 self.subscribers.send(&message);
             }
+
+            self.update_cached_boss_list();
         }
     }
 
+    fn update_cached_boss_list(&mut self) {
+        let updated = self.bosses
+            .values()
+            .map(|entry| &entry.boss)
+            .collect::<Vec<_>>();
+
+        self.cached_boss_list = (self.map_message)(Message::BossList(&updated))
+    }
+
     fn handle_raid_info(&mut self, info: RaidInfo) {
-        match self.bosses.entry(info.tweet.boss_name.clone()) {
+        let is_new_boss = match self.bosses.entry(info.tweet.boss_name.clone()) {
             Entry::Occupied(mut entry) => {
                 let value = entry.get_mut();
 
@@ -208,6 +225,7 @@ where
                 }
 
                 value.recent_tweets.push(Arc::new(info.tweet));
+                false
             }
             Entry::Vacant(entry) => {
                 let name = entry.key().clone();
@@ -247,7 +265,13 @@ where
                     recent_tweets,
                     image_hash: None,
                 });
+
+                true
             }
+        };
+
+        if is_new_boss {
+            self.update_cached_boss_list();
         }
     }
 }

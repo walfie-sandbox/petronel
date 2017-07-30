@@ -49,6 +49,10 @@ impl<Sub> Client<Sub> {
         self.send(Event::Unfollow { id, boss_name });
     }
 
+    pub(crate) fn get_cached_boss_list(&self, id: SubId) {
+        self.send(Event::GetCachedBossList(id))
+    }
+
     pub fn bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
         self.request(Event::GetBosses)
     }

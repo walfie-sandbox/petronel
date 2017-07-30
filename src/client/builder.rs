@@ -137,6 +137,8 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
              }) as fn(BossImageHash) -> Event<Sub>,
         );
 
+        let cached_boss_list = (self.map_message)(Message::BossList(&[]));
+
         let future = Worker {
             hash_requester,
             id_pool: IdPool::new(),
@@ -147,6 +149,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
             subscribers: Broadcast::new(),
             heartbeat: (self.map_message)(Message::Heartbeat),
             map_message: self.map_message,
+            cached_boss_list,
         };
 
         (Client(tx), future)
