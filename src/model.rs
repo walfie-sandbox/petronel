@@ -1,11 +1,12 @@
 use chrono;
+
+pub use image_hash::ImageHash;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
 use std::sync::Arc;
 use string_cache::DefaultAtom;
-
 pub type DateTime = chrono::DateTime<chrono::Utc>;
 pub type TweetId = u64;
 pub type RaidId = String;
@@ -36,6 +37,12 @@ pub struct RaidBoss {
     pub translations: HashSet<BossName>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RaidBossMetadata {
+    pub boss: RaidBoss,
+    pub last_seen: DateTime,
+    pub image_hash: Option<ImageHash>,
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct BossName(DefaultAtom);

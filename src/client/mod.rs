@@ -8,24 +8,14 @@ pub use self::client::Client;
 pub use self::subscription::Subscription;
 pub use self::worker::Worker;
 
-use broadcast::Broadcast;
-use circular_buffer::CircularBuffer;
 use error::*;
 use futures::{Future, Poll};
 use futures::unsync::oneshot;
 use id_pool::Id as SubId;
 use image_hash::ImageHash;
-use model::{BossName, DateTime, RaidBoss, RaidTweet};
+use model::{BossName, RaidBoss, RaidBossMetadata, RaidTweet};
 use raid::RaidInfo;
 use std::sync::Arc;
-
-pub(crate) struct RaidBossEntry<Sub> {
-    boss: RaidBoss,
-    last_seen: DateTime,
-    image_hash: Option<ImageHash>,
-    recent_tweets: CircularBuffer<Arc<RaidTweet>>,
-    broadcast: Broadcast<SubId, Sub>,
-}
 
 #[derive(Debug)]
 pub(crate) enum Event<Sub> {
@@ -53,6 +43,7 @@ pub(crate) enum Event<Sub> {
         boss_name: BossName,
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
+    ClientExportMetadata(oneshot::Sender<Vec<RaidBossMetadata>>),
 
     ClientReadError,
 }
