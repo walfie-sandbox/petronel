@@ -32,6 +32,7 @@ lazy_static! {
 #[must_use = "streams do nothing unless polled"]
 pub struct RaidInfoStream(FlattenStream<FutureTwitterStream>);
 
+// TODO: Add version that reconnects on disconnect/error
 impl RaidInfoStream {
     fn track() -> String {
         // "Lv15,Lv20,Lv25,Lv30,...,Lv175,I need backup!Battle ID:"

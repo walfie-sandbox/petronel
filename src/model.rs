@@ -21,6 +21,7 @@ pub enum Message<'a> {
     Heartbeat,
     Tweet(&'a RaidTweet),
     BossUpdate(&'a RaidBoss),
+    BossList(&'a [&'a RaidBoss]),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

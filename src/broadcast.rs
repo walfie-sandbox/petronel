@@ -59,6 +59,10 @@ where
         self.subscribers.get(id)
     }
 
+    pub fn get_mut(&mut self, id: &Id) -> Option<&mut S> {
+        self.subscribers.get_mut(id)
+    }
+
     pub fn subscribe(&mut self, id: Id, subscriber: S) -> Option<S> {
         self.subscribers.insert(id, subscriber)
     }

@@ -21,6 +21,11 @@ impl<T> CircularBuffer<T> {
         self.next_index = (self.next_index + 1) % self.buffer.capacity();
     }
 
+    pub fn as_slices(&self) -> (&[T], &[T]) {
+        let (s1, s2) = self.buffer.split_at(self.next_index);
+        (s2, s1)
+    }
+
     pub fn as_unordered_slice(&self) -> &[T] {
         self.buffer.as_slice()
     }
@@ -78,5 +83,16 @@ mod test {
         }
 
         unordered_eq(&buf, vec![95, 96, 97, 98, 99]);
+    }
+
+    #[test]
+    fn as_slices() {
+        let mut buf = CircularBuffer::with_capacity(5);
+
+        for i in 0..8 {
+            buf.push(i);
+        }
+
+        assert_eq!(buf.as_slices(), (&[3, 4][..], &[5, 6, 7][..]));
     }
 }

@@ -32,6 +32,10 @@ impl<Sub> Subscription<Sub> {
         self.client.unfollow(self.id.clone(), name);
     }
 
+    pub fn get_bosses(&self) {
+        self.client.get_cached_boss_list(self.id.clone())
+    }
+
     #[inline]
     pub fn unsubscribe(self) {
         self.non_consuming_unsubscribe()
