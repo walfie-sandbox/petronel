@@ -19,13 +19,14 @@ extern crate tokio_core;
 use bytes::Bytes;
 use futures::{Future, Poll, Sink, Stream};
 use futures::sync::mpsc;
-use hyper::header;
+use hyper::{StatusCode, header};
 use hyper::server::{Http, Request, Response, Service};
 use hyper_tls::HttpsConnector;
 use petronel::{Client, ClientBuilder, Subscriber, Subscription, Token};
 use petronel::error::*;
 use petronel::model::{BossName, Message};
 use regex::Regex;
+use serde::Serialize;
 use std::time::Duration;
 use tokio_core::reactor::{Core, Interval};
 
@@ -171,12 +172,25 @@ lazy_static! {
     ).unwrap();
 }
 
+type ServiceResponse = Response<Body>;
+type ServiceFuture = Box<Future<Item = ServiceResponse, Error = hyper::Error>>;
+
+fn response<T: Serialize>(status: StatusCode, t: &T) -> ServiceResponse {
+    let json = serde_json::to_string(t).unwrap();
+
+    Response::new()
+        .with_status(status)
+        .with_header(header::ContentLength(json.len() as u64))
+        .with_header(header::ContentType::json())
+        .with_body(json)
+}
+
 impl Service for PetronelServer {
     type Request = Request;
-    type Response = Response<Body>;
+    type Response = ServiceResponse;
     type Error = hyper::Error;
 
-    type Future = Box<Future<Item = Self::Response, Error = hyper::Error>>;
+    type Future = ServiceFuture;
 
     fn call(&self, req: Request) -> Self::Future {
         let path = percent_encoding::percent_decode(req.path().as_bytes()).decode_utf8_lossy();
@@ -184,14 +198,7 @@ impl Service for PetronelServer {
         if path == "/bosses" {
             let resp = self.0
                 .bosses()
-                .map(|bosses| {
-                    let json = serde_json::to_string(&bosses).unwrap();
-
-                    Response::new()
-                        .with_header(header::ContentLength(json.len() as u64))
-                        .with_header(header::ContentType::json())
-                        .with_body(json)
-                })
+                .map(|bosses| response(StatusCode::Ok, &bosses))
                 .map_err(|_| hyper::Error::Incomplete);
 
             Box::new(resp) as Self::Future
@@ -202,7 +209,7 @@ impl Service for PetronelServer {
                 &hyper::Method::Delete => {
                     self.0.remove_bosses(move |ref meta| meta.boss.name == name);
 
-                    let resp = Response::new().with_status(hyper::StatusCode::Accepted);
+                    let resp = Response::new().with_status(StatusCode::Accepted);
                     Box::new(futures::future::ok(resp)) as Self::Future
                 }
                 &hyper::Method::Get => {
@@ -214,40 +221,21 @@ impl Service for PetronelServer {
                             },
                         )
                         {
-                            let json = serde_json::to_string(boss).unwrap();
-
-                            Response::new()
-                                .with_header(header::ContentLength(json.len() as u64))
-                                .with_header(header::ContentType::json())
-                                .with_body(json)
+                            response(StatusCode::Ok, boss)
                         } else {
-                            let json = serde_json::to_string(
+                            response(
+                                StatusCode::NotFound,
                                 &JsonError { error: "boss not found".to_string() },
-                            ).unwrap();
-
-                            Response::new()
-                                .with_status(hyper::StatusCode::NotFound)
-                                .with_header(header::ContentLength(json.len() as u64))
-                                .with_header(header::ContentType::json())
-                                .with_body(json)
+                            )
                         })
                         .map_err(|_| hyper::Error::Incomplete);
 
                     Box::new(resp) as Self::Future
                 }
                 other => {
-                    // TODO: DRY
-                    let json = serde_json::to_string(&JsonError {
-                        error: format!("unrecognized endpoint: {} {}", other, path),
-                    }).unwrap();
-
-                    Box::new(futures::future::ok(
-                        Response::new()
-                            .with_status(hyper::StatusCode::NotFound)
-                            .with_header(header::ContentLength(json.len() as u64))
-                            .with_header(header::ContentType::json())
-                            .with_body(json),
-                    )) as Self::Future
+                    let error = format!("unrecognized endpoint: {} {}", other, path);
+                    let resp = response(StatusCode::NotFound, &JsonError { error });
+                    Box::new(futures::future::ok(resp)) as Self::Future
                 }
             }
         } else if let Some(captures) = REGEX_BOSS_TWEETS.captures(&path) {
@@ -255,15 +243,10 @@ impl Service for PetronelServer {
             let resp = self.0
                 .tweets(name)
                 .map(|tweets| {
-                    let json = serde_json::to_string(
+                    response(
+                        StatusCode::Ok,
                         &tweets.into_iter().map(|t| t).collect::<Vec<_>>(),
-                    ).unwrap();
-
-
-                    Response::new()
-                        .with_header(header::ContentLength(json.len() as u64))
-                        .with_header(header::ContentType::json())
-                        .with_body(json)
+                    )
                 })
                 .map_err(|_| hyper::Error::Incomplete);
 
@@ -293,17 +276,10 @@ impl Service for PetronelServer {
 
             Box::new(response) as Self::Future
         } else {
-            let json = serde_json::to_string(&JsonError {
-                error: format!("unrecognized endpoint: {} {}", req.method(), path),
-            }).unwrap();
+            let error = format!("unrecognized endpoint: {} {}", req.method(), path);
+            let resp = response(StatusCode::NotFound, &JsonError { error });
 
-            Box::new(futures::future::ok(
-                Response::new()
-                    .with_status(hyper::StatusCode::NotFound)
-                    .with_header(header::ContentLength(json.len() as u64))
-                    .with_header(header::ContentType::json())
-                    .with_body(json),
-            )) as Self::Future
+            Box::new(futures::future::ok(resp)) as Self::Future
         }
     }
 }
