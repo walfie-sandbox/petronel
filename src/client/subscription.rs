@@ -20,7 +20,7 @@ impl<Sub> Subscription<Sub> {
     {
         let name = boss_name.into();
         self.following.insert(name.clone());
-        self.client.follow(self.id.clone(), name);
+        self.client.subscriber_follow(self.id.clone(), name);
     }
 
     pub fn unfollow<B>(&mut self, boss_name: B)
@@ -29,11 +29,11 @@ impl<Sub> Subscription<Sub> {
     {
         let name = boss_name.into();
         self.following.remove(&name);
-        self.client.unfollow(self.id.clone(), name);
+        self.client.subscriber_unfollow(self.id.clone(), name);
     }
 
     pub fn get_bosses(&self) {
-        self.client.get_cached_boss_list(self.id.clone())
+        self.client.subscriber_get_bosses(self.id.clone())
     }
 
     #[inline]
@@ -43,7 +43,7 @@ impl<Sub> Subscription<Sub> {
 
     // This is needed for the Drop implementation
     fn non_consuming_unsubscribe(&self) {
-        self.client.unsubscribe(self.id.clone())
+        self.client.subscriber_unsubscribe(self.id.clone())
     }
 }
 

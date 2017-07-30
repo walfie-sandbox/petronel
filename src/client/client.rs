@@ -29,7 +29,7 @@ impl<Sub> Client<Sub> {
 
     pub fn subscribe(&self, subscriber: Sub) -> AsyncResult<Subscription<Sub>> {
         self.request(|sender| {
-            Event::Subscribe {
+            Event::SubscriberSubscribe {
                 subscriber,
                 sender,
                 client: self.clone(),
@@ -37,24 +37,24 @@ impl<Sub> Client<Sub> {
         })
     }
 
-    pub(crate) fn unsubscribe(&self, id: SubId) {
-        self.send(Event::Unsubscribe(id));
+    pub(crate) fn subscriber_unsubscribe(&self, id: SubId) {
+        self.send(Event::SubscriberUnsubscribe(id));
     }
 
-    pub(crate) fn follow(&self, id: SubId, boss_name: BossName) {
-        self.send(Event::Follow { id, boss_name });
+    pub(crate) fn subscriber_follow(&self, id: SubId, boss_name: BossName) {
+        self.send(Event::SubscriberFollow { id, boss_name });
     }
 
-    pub(crate) fn unfollow(&self, id: SubId, boss_name: BossName) {
-        self.send(Event::Unfollow { id, boss_name });
+    pub(crate) fn subscriber_unfollow(&self, id: SubId, boss_name: BossName) {
+        self.send(Event::SubscriberUnfollow { id, boss_name });
     }
 
-    pub(crate) fn get_cached_boss_list(&self, id: SubId) {
-        self.send(Event::GetCachedBossList(id))
+    pub(crate) fn subscriber_get_bosses(&self, id: SubId) {
+        self.send(Event::SubscriberGetBosses(id))
     }
 
     pub fn bosses(&self) -> AsyncResult<Vec<RaidBoss>> {
-        self.request(Event::GetBosses)
+        self.request(Event::ClientGetBosses)
     }
 
     pub fn recent_tweets<B>(&self, boss_name: B) -> AsyncResult<Vec<Arc<RaidTweet>>>
@@ -62,7 +62,7 @@ impl<Sub> Client<Sub> {
         B: Into<BossName>,
     {
         self.request(|tx| {
-            Event::GetRecentTweets {
+            Event::ClientGetRecentTweets {
                 boss_name: boss_name.into(),
                 sender: tx,
             }
@@ -70,6 +70,6 @@ impl<Sub> Client<Sub> {
     }
 
     pub fn heartbeat(&self) {
-        self.send(Event::Heartbeat);
+        self.send(Event::SubscriberHeartbeat);
     }
 }

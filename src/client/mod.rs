@@ -35,26 +35,25 @@ pub(crate) enum Event<Sub> {
         image_hash: ImageHash,
     },
 
-    Follow { id: SubId, boss_name: BossName },
-    Unfollow { id: SubId, boss_name: BossName },
-    GetCachedBossList(SubId),
+    SubscriberFollow { id: SubId, boss_name: BossName },
+    SubscriberUnfollow { id: SubId, boss_name: BossName },
+    SubscriberGetBosses(SubId),
+    SubscriberHeartbeat,
 
-    Subscribe {
+    SubscriberSubscribe {
         subscriber: Sub,
         client: Client<Sub>,
         sender: oneshot::Sender<Subscription<Sub>>,
     },
-    Unsubscribe(SubId),
+    SubscriberUnsubscribe(SubId),
 
-    GetBosses(oneshot::Sender<Vec<RaidBoss>>),
-    GetRecentTweets {
+    ClientGetBosses(oneshot::Sender<Vec<RaidBoss>>),
+    ClientGetRecentTweets {
         boss_name: BossName,
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
 
-    Heartbeat,
-
-    ReadError,
+    ClientReadError,
 }
 
 pub struct AsyncResult<T>(oneshot::Receiver<T>);
