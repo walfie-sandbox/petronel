@@ -25,6 +25,7 @@ pub enum Message<'a> {
     TweetList(&'a [Arc<RaidTweet>]),
     BossUpdate(&'a RaidBoss),
     BossList(&'a [&'a RaidBoss]),
+    BossRemove(&'a BossName),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

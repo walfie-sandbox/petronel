@@ -136,7 +136,18 @@ where
     }
 
     fn remove_bosses(&mut self, f: fn(&RaidBossMetadata) -> bool) {
-        self.bosses.retain(|_, entry| !(f)(&entry.boss_data));
+        let (filter_map, subscribers) = (&self.filter_map_message, &mut self.subscribers);
+
+        self.bosses.retain(|_, entry| {
+            let should_remove = (f)(&entry.boss_data);
+
+            if should_remove {
+                let message = (filter_map)(Message::BossRemove(&entry.boss_data.boss.name));
+                subscribers.maybe_send(message.as_ref());
+            }
+
+            !should_remove
+        });
     }
 
     fn subscribe(&mut self, subscriber: Sub) -> SubId {
