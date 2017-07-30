@@ -1,12 +1,12 @@
 use chrono;
-use image_hash::ImageHash;
+
+pub use image_hash::ImageHash;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
 use std::sync::Arc;
 use string_cache::DefaultAtom;
-
 pub type DateTime = chrono::DateTime<chrono::Utc>;
 pub type TweetId = u64;
 pub type RaidId = String;
