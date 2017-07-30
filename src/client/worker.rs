@@ -128,8 +128,37 @@ where
                     self.bosses.values().map(|e| e.boss_data.clone()),
                 ));
             }
+            ClientRemoveBosses(f) => {
+                self.remove_bosses(f.0);
+            }
             ClientReadError => {} // This should never happen
         }
+    }
+
+    fn remove_bosses(&mut self, f: Box<Fn(&RaidBossMetadata) -> bool>) {
+        let (filter_map, subscribers, requested_bosses) = (
+            &self.filter_map_message,
+            &mut self.subscribers,
+            &mut self.requested_bosses,
+        );
+
+        self.bosses.retain(|_, mut entry| {
+            let should_remove = (f)(&entry.boss_data);
+
+            if should_remove {
+                let boss_name = &entry.boss_data.boss.name;
+                let message = (filter_map)(Message::BossRemove(boss_name));
+                subscribers.maybe_send(message.as_ref());
+
+                // If there are existing subscribers, move them to `requested_bosses`
+                if !entry.broadcast.is_empty() {
+                    let broadcast = ::std::mem::replace(&mut entry.broadcast, Broadcast::new());
+                    requested_bosses.insert(boss_name.clone(), broadcast);
+                }
+            }
+
+            !should_remove
+        });
     }
 
     fn subscribe(&mut self, subscriber: Sub) -> SubId {

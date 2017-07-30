@@ -1,4 +1,4 @@
-use super::{AsyncResult, Event, Subscription};
+use super::{AsyncResult, Event, RemoveBossesPredicate, Subscription};
 use futures::unsync::{mpsc, oneshot};
 use id_pool::Id as SubId;
 use model::{BossName, RaidBoss, RaidBossMetadata, RaidTweet};
@@ -75,6 +75,15 @@ impl<Sub> Client<Sub> {
 
     pub fn export_metadata(&self) -> AsyncResult<Vec<RaidBossMetadata>> {
         self.request(Event::ClientExportMetadata)
+    }
+
+    pub fn remove_bosses<F>(&self, f: F)
+    where
+        F: Fn(&RaidBossMetadata) -> bool + 'static,
+    {
+        self.send(Event::ClientRemoveBosses(
+            RemoveBossesPredicate(Box::new(f)),
+        ));
     }
 
     pub fn heartbeat(&self) {

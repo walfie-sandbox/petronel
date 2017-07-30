@@ -19,13 +19,14 @@ extern crate tokio_core;
 use bytes::Bytes;
 use futures::{Future, Poll, Sink, Stream};
 use futures::sync::mpsc;
-use hyper::header;
+use hyper::{StatusCode, header};
 use hyper::server::{Http, Request, Response, Service};
 use hyper_tls::HttpsConnector;
 use petronel::{Client, ClientBuilder, Subscriber, Subscription, Token};
 use petronel::error::*;
 use petronel::model::{BossName, Message};
 use regex::Regex;
+use serde::Serialize;
 use std::time::Duration;
 use tokio_core::reactor::{Core, Interval};
 
@@ -128,17 +129,6 @@ impl Clone for PetronelServer {
 #[derive(Serialize)]
 struct JsonError {
     error: String,
-    cause: Vec<String>,
-}
-
-lazy_static! {
-    static ref REGEX_BOSS_TWEETS: Regex = Regex::new(
-        r"^/bosses/(?P<boss_name>.+)/tweets$"
-    ).unwrap();
-
-    static ref REGEX_BOSS_STREAM: Regex = Regex::new(
-        r"^/bosses/(?P<boss_name>.+)/stream$"
-    ).unwrap();
 }
 
 struct Body {
@@ -168,12 +158,39 @@ where
     }
 }
 
+lazy_static! {
+    static ref REGEX_BOSS_TWEETS: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>.+)/tweets$"
+    ).unwrap();
+
+    static ref REGEX_BOSS_STREAM: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>.+)/stream$"
+    ).unwrap();
+
+    static ref REGEX_BOSS: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>[^/]+)$"
+    ).unwrap();
+}
+
+type ServiceResponse = Response<Body>;
+type ServiceFuture = Box<Future<Item = ServiceResponse, Error = hyper::Error>>;
+
+fn response<T: Serialize>(status: StatusCode, t: &T) -> ServiceResponse {
+    let json = serde_json::to_string(t).unwrap();
+
+    Response::new()
+        .with_status(status)
+        .with_header(header::ContentLength(json.len() as u64))
+        .with_header(header::ContentType::json())
+        .with_body(json)
+}
+
 impl Service for PetronelServer {
     type Request = Request;
-    type Response = Response<Body>;
+    type Response = ServiceResponse;
     type Error = hyper::Error;
 
-    type Future = Box<Future<Item = Self::Response, Error = hyper::Error>>;
+    type Future = ServiceFuture;
 
     fn call(&self, req: Request) -> Self::Future {
         let path = percent_encoding::percent_decode(req.path().as_bytes()).decode_utf8_lossy();
@@ -181,30 +198,51 @@ impl Service for PetronelServer {
         if path == "/bosses" {
             let resp = self.0
                 .bosses()
-                .map(|bosses| {
-                    let json = serde_json::to_string(&bosses).unwrap();
-
-                    Response::new()
-                        .with_header(header::ContentLength(json.len() as u64))
-                        .with_header(header::ContentType::json())
-                        .with_body(json)
-                })
+                .map(|bosses| response(StatusCode::Ok, &bosses))
                 .map_err(|_| hyper::Error::Incomplete);
 
             Box::new(resp) as Self::Future
+        } else if let Some(captures) = REGEX_BOSS.captures(&path) {
+            let name: BossName = captures.name("boss_name").unwrap().as_str().into();
+            let method = req.method();
+
+            if method == &hyper::Method::Delete {
+                self.0.remove_bosses(move |ref meta| meta.boss.name == name);
+
+                let resp = Response::new().with_status(StatusCode::Accepted);
+                Box::new(futures::future::ok(resp)) as Self::Future
+            } else if method == &hyper::Method::Get {
+                let resp = self.0
+                    .bosses()
+                    .map(move |bosses| {
+                        let find_boss = bosses.iter().find(|boss| boss.name == name);
+
+                        if let Some(boss) = find_boss {
+                            response(StatusCode::Ok, boss)
+                        } else {
+                            response(
+                                StatusCode::NotFound,
+                                &JsonError { error: "boss not found".to_string() },
+                            )
+                        }
+                    })
+                    .map_err(|_| hyper::Error::Incomplete);
+
+                Box::new(resp) as Self::Future
+            } else {
+                let error = format!("unrecognized endpoint: {} {}", method, path);
+                let resp = response(StatusCode::NotFound, &JsonError { error });
+                Box::new(futures::future::ok(resp)) as Self::Future
+            }
         } else if let Some(captures) = REGEX_BOSS_TWEETS.captures(&path) {
             let name = captures.name("boss_name").unwrap().as_str();
             let resp = self.0
                 .tweets(name)
                 .map(|tweets| {
-                    let json = serde_json::to_string(
+                    response(
+                        StatusCode::Ok,
                         &tweets.into_iter().map(|t| t).collect::<Vec<_>>(),
-                    ).unwrap();
-
-                    Response::new()
-                        .with_header(header::ContentLength(json.len() as u64))
-                        .with_header(header::ContentType::json())
-                        .with_body(json)
+                    )
                 })
                 .map_err(|_| hyper::Error::Incomplete);
 
@@ -234,18 +272,10 @@ impl Service for PetronelServer {
 
             Box::new(response) as Self::Future
         } else {
-            let json = serde_json::to_string(&JsonError {
-                error: format!("Unrecognized path: {}", path),
-                cause: vec![],
-            }).unwrap();
+            let error = format!("unrecognized endpoint: {} {}", req.method(), path);
+            let resp = response(StatusCode::NotFound, &JsonError { error });
 
-            Box::new(futures::future::ok(
-                Response::new()
-                    .with_status(hyper::StatusCode::NotFound)
-                    .with_header(header::ContentLength(json.len() as u64))
-                    .with_header(header::ContentType::json())
-                    .with_body(json),
-            )) as Self::Future
+            Box::new(futures::future::ok(resp)) as Self::Future
         }
     }
 }
