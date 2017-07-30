@@ -51,7 +51,7 @@ pub(crate) enum Event<Sub> {
 }
 
 // This is only here because `Debug` isn't implemented for `fn(&T)`
-pub(crate) struct RemoveBossesPredicate(fn(&RaidBossMetadata) -> bool);
+pub(crate) struct RemoveBossesPredicate(Box<Fn(&RaidBossMetadata) -> bool>);
 impl fmt::Debug for RemoveBossesPredicate {
     fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
         write!(f, "function")

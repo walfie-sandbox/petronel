@@ -77,8 +77,13 @@ impl<Sub> Client<Sub> {
         self.request(Event::ClientExportMetadata)
     }
 
-    pub fn remove_bosses(&self, f: fn(&RaidBossMetadata) -> bool) {
-        self.send(Event::ClientRemoveBosses(RemoveBossesPredicate(f)));
+    pub fn remove_bosses<F>(&self, f: F)
+    where
+        F: Fn(&RaidBossMetadata) -> bool + 'static,
+    {
+        self.send(Event::ClientRemoveBosses(
+            RemoveBossesPredicate(Box::new(f)),
+        ));
     }
 
     pub fn heartbeat(&self) {

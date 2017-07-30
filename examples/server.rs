@@ -128,17 +128,6 @@ impl Clone for PetronelServer {
 #[derive(Serialize)]
 struct JsonError {
     error: String,
-    cause: Vec<String>,
-}
-
-lazy_static! {
-    static ref REGEX_BOSS_TWEETS: Regex = Regex::new(
-        r"^/bosses/(?P<boss_name>.+)/tweets$"
-    ).unwrap();
-
-    static ref REGEX_BOSS_STREAM: Regex = Regex::new(
-        r"^/bosses/(?P<boss_name>.+)/stream$"
-    ).unwrap();
 }
 
 struct Body {
@@ -168,6 +157,20 @@ where
     }
 }
 
+lazy_static! {
+    static ref REGEX_BOSS_TWEETS: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>.+)/tweets$"
+    ).unwrap();
+
+    static ref REGEX_BOSS_STREAM: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>.+)/stream$"
+    ).unwrap();
+
+    static ref REGEX_BOSS: Regex = Regex::new(
+        r"^/bosses/(?P<boss_name>[^/]+)$"
+    ).unwrap();
+}
+
 impl Service for PetronelServer {
     type Request = Request;
     type Response = Response<Body>;
@@ -192,6 +195,20 @@ impl Service for PetronelServer {
                 .map_err(|_| hyper::Error::Incomplete);
 
             Box::new(resp) as Self::Future
+        } else if let Some(captures) = REGEX_BOSS.captures(&path) {
+            let name: BossName = captures.name("boss_name").unwrap().as_str().into();
+
+            // TODO: Handle GET case
+            let resp: Self::Response = match req.method() {
+                &hyper::Method::Delete => {
+                    self.0.remove_bosses(move |ref meta| meta.boss.name == name);
+
+                    Response::new().with_status(hyper::StatusCode::Accepted)
+                }
+                _ => Response::new().with_status(hyper::StatusCode::NotFound),
+            };
+
+            Box::new(futures::future::ok(resp)) as Self::Future
         } else if let Some(captures) = REGEX_BOSS_TWEETS.captures(&path) {
             let name = captures.name("boss_name").unwrap().as_str();
             let resp = self.0
@@ -235,8 +252,7 @@ impl Service for PetronelServer {
             Box::new(response) as Self::Future
         } else {
             let json = serde_json::to_string(&JsonError {
-                error: format!("Unrecognized path: {}", path),
-                cause: vec![],
+                error: format!("Unrecognized endpoint: {} {}", req.method(), path),
             }).unwrap();
 
             Box::new(futures::future::ok(
