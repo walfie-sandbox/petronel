@@ -136,15 +136,25 @@ where
     }
 
     fn remove_bosses(&mut self, f: Box<Fn(&RaidBossMetadata) -> bool>) {
-        let (filter_map, subscribers) = (&self.filter_map_message, &mut self.subscribers);
+        let (filter_map, subscribers, requested_bosses) = (
+            &self.filter_map_message,
+            &mut self.subscribers,
+            &mut self.requested_bosses,
+        );
 
-        self.bosses.retain(|_, entry| {
+        self.bosses.retain(|_, mut entry| {
             let should_remove = (f)(&entry.boss_data);
 
-            // TODO: If there are subscribers, move them to requested_bosses
             if should_remove {
-                let message = (filter_map)(Message::BossRemove(&entry.boss_data.boss.name));
+                let boss_name = &entry.boss_data.boss.name;
+                let message = (filter_map)(Message::BossRemove(boss_name));
                 subscribers.maybe_send(message.as_ref());
+
+                // If there are existing subscribers, move them to `requested_bosses`
+                if !entry.broadcast.is_empty() {
+                    let broadcast = ::std::mem::replace(&mut entry.broadcast, Broadcast::new());
+                    requested_bosses.insert(boss_name.clone(), broadcast);
+                }
             }
 
             !should_remove
