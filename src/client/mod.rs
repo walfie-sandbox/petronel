@@ -13,7 +13,7 @@ use futures::{Future, Poll};
 use futures::unsync::oneshot;
 use id_pool::Id as SubId;
 use image_hash::ImageHash;
-use model::{BossName, DateTime, RaidBoss, RaidBossMetadata, RaidTweet};
+use model::{BossName, RaidBoss, RaidBossMetadata, RaidTweet};
 use raid::RaidInfo;
 use std::sync::Arc;
 

@@ -16,10 +16,10 @@ use std::sync::Arc;
 
 const DEFAULT_BOSS_LEVEL: BossLevel = 0;
 
-pub struct RaidBossEntry<Sub> {
-    boss_data: RaidBossMetadata,
-    recent_tweets: CircularBuffer<Arc<RaidTweet>>,
-    broadcast: Broadcast<SubId, Sub>,
+pub(crate) struct RaidBossEntry<Sub> {
+    pub(crate) boss_data: RaidBossMetadata,
+    pub(crate) recent_tweets: CircularBuffer<Arc<RaidTweet>>,
+    pub(crate) broadcast: Broadcast<SubId, Sub>,
 }
 
 #[must_use = "futures do nothing unless polled"]
