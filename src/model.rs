@@ -1,4 +1,5 @@
 use chrono;
+use image_hash::ImageHash;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt;
@@ -36,6 +37,12 @@ pub struct RaidBoss {
     pub translations: HashSet<BossName>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RaidBossMetadata {
+    pub boss: RaidBoss,
+    pub last_seen: DateTime,
+    pub image_hash: Option<ImageHash>,
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct BossName(DefaultAtom);

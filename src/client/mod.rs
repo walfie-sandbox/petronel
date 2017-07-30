@@ -13,15 +13,9 @@ use futures::{Future, Poll};
 use futures::unsync::oneshot;
 use id_pool::Id as SubId;
 use image_hash::ImageHash;
-use model::{BossName, DateTime, RaidBoss, RaidTweet};
+use model::{BossName, DateTime, RaidBoss, RaidBossMetadata, RaidTweet};
 use raid::RaidInfo;
 use std::sync::Arc;
-
-pub(crate) struct RaidBossMetadata {
-    boss: RaidBoss,
-    last_seen: DateTime,
-    image_hash: Option<ImageHash>,
-}
 
 #[derive(Debug)]
 pub(crate) enum Event<Sub> {
@@ -49,6 +43,7 @@ pub(crate) enum Event<Sub> {
         boss_name: BossName,
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
+    ClientExportMetadata(oneshot::Sender<Vec<RaidBossMetadata>>),
 
     ClientReadError,
 }

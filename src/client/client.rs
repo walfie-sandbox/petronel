@@ -1,7 +1,7 @@
 use super::{AsyncResult, Event, Subscription};
 use futures::unsync::{mpsc, oneshot};
 use id_pool::Id as SubId;
-use model::{BossName, RaidBoss, RaidTweet};
+use model::{BossName, RaidBoss, RaidBossMetadata, RaidTweet};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -71,6 +71,10 @@ impl<Sub> Client<Sub> {
                 sender: tx,
             }
         })
+    }
+
+    pub fn export_metadata(&self) -> AsyncResult<Vec<RaidBossMetadata>> {
+        self.request(Event::ClientExportMetadata)
     }
 
     pub fn heartbeat(&self) {

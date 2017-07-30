@@ -1,4 +1,4 @@
-use super::{Event, RaidBossMetadata, Subscription};
+use super::{Event, Subscription};
 use broadcast::{Broadcast, Subscriber};
 use circular_buffer::CircularBuffer;
 use error::*;
@@ -7,7 +7,7 @@ use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use id_pool::{Id as SubId, IdPool};
 use image_hash::{BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender, ImageHasher};
-use model::{BossLevel, BossName, Message, RaidBoss, RaidTweet};
+use model::{BossLevel, BossName, Message, RaidBoss, RaidBossMetadata, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
@@ -122,6 +122,11 @@ where
                 });
 
                 let _ = sender.send(tweets);
+            }
+            ClientExportMetadata(tx) => {
+                let _ = tx.send(Vec::from_iter(
+                    self.bosses.values().map(|e| e.boss_data.clone()),
+                ));
             }
             ClientReadError => {} // This should never happen
         }
