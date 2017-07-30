@@ -198,17 +198,58 @@ impl Service for PetronelServer {
         } else if let Some(captures) = REGEX_BOSS.captures(&path) {
             let name: BossName = captures.name("boss_name").unwrap().as_str().into();
 
-            // TODO: Handle GET case
-            let resp: Self::Response = match req.method() {
+            match req.method() {
                 &hyper::Method::Delete => {
                     self.0.remove_bosses(move |ref meta| meta.boss.name == name);
 
-                    Response::new().with_status(hyper::StatusCode::Accepted)
+                    let resp = Response::new().with_status(hyper::StatusCode::Accepted);
+                    Box::new(futures::future::ok(resp)) as Self::Future
                 }
-                _ => Response::new().with_status(hyper::StatusCode::NotFound),
-            };
+                &hyper::Method::Get => {
+                    let resp = self.0
+                        .bosses()
+                        .map(move |bosses| if let Some(boss) = bosses.iter().find(
+                            |boss| {
+                                boss.name == name
+                            },
+                        )
+                        {
+                            let json = serde_json::to_string(boss).unwrap();
 
-            Box::new(futures::future::ok(resp)) as Self::Future
+                            Response::new()
+                                .with_header(header::ContentLength(json.len() as u64))
+                                .with_header(header::ContentType::json())
+                                .with_body(json)
+                        } else {
+                            let json = serde_json::to_string(
+                                &JsonError { error: "boss not found".to_string() },
+                            ).unwrap();
+
+                            Response::new()
+                                .with_status(hyper::StatusCode::NotFound)
+                                .with_header(header::ContentLength(json.len() as u64))
+                                .with_header(header::ContentType::json())
+                                .with_body(json)
+                        })
+                        .map_err(|_| hyper::Error::Incomplete);
+
+                    Box::new(resp) as Self::Future
+                }
+                other => {
+                    // TODO: DRY
+                    let json = serde_json::to_string(&JsonError {
+                        error: format!("unrecognized endpoint: {} {}", other, path),
+                    }).unwrap();
+
+                    Box::new(futures::future::ok(
+                        Response::new()
+                            .with_status(hyper::StatusCode::NotFound)
+                            .with_header(header::ContentLength(json.len() as u64))
+                            .with_header(header::ContentType::json())
+                            .with_body(json),
+                    )) as Self::Future
+                }
+            }
         } else if let Some(captures) = REGEX_BOSS_TWEETS.captures(&path) {
             let name = captures.name("boss_name").unwrap().as_str();
             let resp = self.0
@@ -217,6 +258,7 @@ impl Service for PetronelServer {
                     let json = serde_json::to_string(
                         &tweets.into_iter().map(|t| t).collect::<Vec<_>>(),
                     ).unwrap();
+
 
                     Response::new()
                         .with_header(header::ContentLength(json.len() as u64))
@@ -252,7 +294,7 @@ impl Service for PetronelServer {
             Box::new(response) as Self::Future
         } else {
             let json = serde_json::to_string(&JsonError {
-                error: format!("Unrecognized endpoint: {} {}", req.method(), path),
+                error: format!("unrecognized endpoint: {} {}", req.method(), path),
             }).unwrap();
 
             Box::new(futures::future::ok(
