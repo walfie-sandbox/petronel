@@ -18,7 +18,7 @@ pub struct ClientBuilder<H, S, Sub, F> {
     stream: S,
     history_size: usize,
     image_hasher: H,
-    map_message: F,
+    filter_map_message: F,
     subscriber_type: PhantomData<Sub>,
 }
 
@@ -31,14 +31,19 @@ impl ClientBuilder<(), (), (), ()> {
             stream: (),
             history_size: DEFAULT_HISTORY_SIZE,
             image_hasher: (),
-            map_message: (),
+            filter_map_message: (),
             subscriber_type: PhantomData,
         }
     }
 }
 
 impl<'a, C>
-    ClientBuilder<HyperImageHasher<'a, C>, RaidInfoStream, NoOpSubscriber, fn(Message) -> ()>
+    ClientBuilder<
+        HyperImageHasher<'a, C>,
+        RaidInfoStream,
+        NoOpSubscriber,
+        fn(Message) -> Option<()>,
+    >
 where
     C: Connect,
 {
@@ -51,7 +56,7 @@ where
             stream,
             history_size: DEFAULT_HISTORY_SIZE,
             image_hasher,
-            map_message: (|_| ()) as fn(Message) -> (),
+            filter_map_message: (|_| None) as fn(Message) -> Option<()>,
             subscriber_type: PhantomData,
         }
     }
@@ -71,7 +76,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
             stream,
             history_size: self.history_size,
             image_hasher: self.image_hasher,
-            map_message: self.map_message,
+            filter_map_message: self.filter_map_message,
             subscriber_type: self.subscriber_type,
         }
     }
@@ -81,7 +86,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
             stream: self.stream,
             history_size: self.history_size,
             image_hasher,
-            map_message: self.map_message,
+            filter_map_message: self.filter_map_message,
             subscriber_type: self.subscriber_type,
         }
     }
@@ -94,20 +99,20 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
             stream: self.stream,
             history_size: self.history_size,
             image_hasher: self.image_hasher,
-            map_message: self.map_message,
+            filter_map_message: self.filter_map_message,
             subscriber_type: PhantomData,
         }
     }
 
-    pub fn map_message<F2, T>(self, f: F2) -> ClientBuilder<H, S, Sub, F2>
+    pub fn filter_map_message<F2, T>(self, f: F2) -> ClientBuilder<H, S, Sub, F2>
     where
-        F2: Fn(Message) -> T,
+        F2: Fn(Message) -> Option<T>,
     {
         ClientBuilder {
             stream: self.stream,
             history_size: self.history_size,
             image_hasher: self.image_hasher,
-            map_message: f,
+            filter_map_message: f,
             subscriber_type: self.subscriber_type,
         }
     }
@@ -117,7 +122,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
         S: Stream<Item = RaidInfo, Error = Error>,
         H: ImageHasher,
         Sub: Subscriber,
-        F: Fn(Message) -> Sub::Item,
+        F: Fn(Message) -> Option<Sub::Item>,
     {
         let (tx, rx) = mpsc::unbounded();
 
@@ -137,7 +142,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
              }) as fn(BossImageHash) -> Event<Sub>,
         );
 
-        let cached_boss_list = (self.map_message)(Message::BossList(&[]));
+        let cached_boss_list = (self.filter_map_message)(Message::BossList(&[]));
 
         let future = Worker {
             hash_requester,
@@ -147,8 +152,8 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
             tweet_history_size: self.history_size,
             requested_bosses: HashMap::new(),
             subscribers: Broadcast::new(),
-            heartbeat: (self.map_message)(Message::Heartbeat),
-            map_message: self.map_message,
+            heartbeat: (self.filter_map_message)(Message::Heartbeat),
+            filter_map_message: self.filter_map_message,
             cached_boss_list,
         };
 

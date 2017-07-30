@@ -6,6 +6,13 @@ pub trait Subscriber {
     type Item;
 
     fn send(&mut self, message: &Self::Item) -> Result<(), ()>;
+    fn maybe_send(&mut self, message: Option<&Self::Item>) -> Result<(), ()> {
+        if let Some(msg) = message {
+            self.send(msg)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<S> Subscriber for S
@@ -69,6 +76,12 @@ where
 
     pub fn unsubscribe(&mut self, id: &Id) -> Option<S> {
         self.subscribers.remove(id)
+    }
+
+    pub(crate) fn maybe_send(&mut self, message: Option<&S::Item>) {
+        if let Some(msg) = message {
+            self.send(msg)
+        }
     }
 
     pub fn send(&mut self, message: &S::Item) {
