@@ -124,7 +124,7 @@ impl<H, S, Sub, F> ClientBuilder<H, S, Sub, F> {
         let stream_events = self.stream.map(
             Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub>,
         );
-        let rx = rx.or_else((|()| Ok(Event::ReadError)) as fn(()) -> Result<Event<Sub>>);
+        let rx = rx.or_else((|()| Ok(Event::ClientReadError)) as fn(()) -> Result<Event<Sub>>);
 
         let (hash_requester, hash_receiver) =
             image_hash::channel(self.image_hasher, MAX_CONCURRENT_IMAGE_HASHER_REQUESTS);

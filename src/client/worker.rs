@@ -54,7 +54,7 @@ where
         use super::Event::*;
 
         match event {
-            Subscribe {
+            SubscriberSubscribe {
                 subscriber,
                 sender,
                 client,
@@ -66,20 +66,21 @@ where
                     client,
                 });
             }
-            Unsubscribe(id) => {
+            SubscriberUnsubscribe(id) => {
                 self.unsubscribe(&id);
             }
-            Follow { id, boss_name } => {
+            SubscriberFollow { id, boss_name } => {
                 self.follow(id, boss_name);
             }
-            Unfollow { id, boss_name } => {
+            SubscriberUnfollow { id, boss_name } => {
                 self.unfollow(&id, boss_name);
             }
-            GetCachedBossList(id) => {
+            SubscriberGetBosses(id) => {
                 if let Some(sub) = self.subscribers.get_mut(&id) {
                     let _ = sub.send(&self.cached_boss_list);
                 }
             }
+            SubscriberHeartbeat => self.subscribers.send(&self.heartbeat),
 
             NewRaidInfo(r) => {
                 self.handle_raid_info(r);
@@ -91,10 +92,10 @@ where
                 self.handle_image_hash(boss_name, image_hash);
             }
 
-            GetBosses(tx) => {
+            ClientGetBosses(tx) => {
                 let _ = tx.send(Vec::from_iter(self.bosses.values().map(|e| e.boss.clone())));
             }
-            GetRecentTweets { boss_name, sender } => {
+            ClientGetRecentTweets { boss_name, sender } => {
                 let tweets = self.bosses.get(&boss_name).map_or(vec![], |e| {
                     // Returns recent tweets, unsorted. The client is
                     // expected to do the sorting on their end.
@@ -103,8 +104,7 @@ where
 
                 let _ = sender.send(tweets);
             }
-            Heartbeat => self.subscribers.send(&self.heartbeat),
-            ReadError => {} // This should never happen
+            ClientReadError => {} // This should never happen
         }
     }
 
