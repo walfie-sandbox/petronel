@@ -23,6 +23,7 @@ mod id_pool;
 mod broadcast;
 mod circular_buffer;
 mod image_hash;
+mod metrics;
 
 pub use broadcast::{NoOpSubscriber, Subscriber};
 pub use client::{Client, ClientBuilder, Subscription, Worker};

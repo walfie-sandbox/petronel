@@ -84,6 +84,10 @@ where
         }
     }
 
+    pub fn subscriber_count(&self) -> usize {
+        self.subscribers.len()
+    }
+
     pub fn send(&mut self, message: &S::Item) {
         // Remove any subscribers that return an error
         self.subscribers.retain(|_, subscriber| {
