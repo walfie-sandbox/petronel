@@ -28,18 +28,22 @@ pub struct Worker<H, S, Sub, F, M>
 where
     Sub: Subscriber,
     H: ImageHasher,
+    M: Metrics,
 {
     pub(crate) hash_requester: ImageHashSender,
     pub(crate) id_pool: IdPool,
     pub(crate) events: Select<
-        Map<S, fn(RaidInfo) -> Event<Sub>>,
+        Map<S, fn(RaidInfo) -> Event<Sub, M::Export>>,
         Select<
             OrElse<
-                mpsc::UnboundedReceiver<Event<Sub>>,
-                fn(()) -> Result<Event<Sub>>,
-                Result<Event<Sub>>,
+                mpsc::UnboundedReceiver<Event<Sub, M::Export>>,
+                fn(()) -> Result<Event<Sub, M::Export>>,
+                Result<Event<Sub, M::Export>>,
             >,
-            Map<ImageHashReceiver<H>, fn(BossImageHash) -> Event<Sub>>,
+            Map<
+                ImageHashReceiver<H>,
+                fn(BossImageHash) -> Event<Sub, M::Export>,
+            >,
         >,
     >,
     pub(crate) bosses: HashMap<BossName, RaidBossEntry<Sub>>,
@@ -59,7 +63,7 @@ where
     F: Fn(Message) -> Option<Sub::Item>,
     M: Metrics,
 {
-    fn handle_event(&mut self, event: Event<Sub>) {
+    fn handle_event(&mut self, event: Event<Sub, M::Export>) {
         use super::Event::*;
 
         match event {
@@ -130,6 +134,9 @@ where
                 let _ = tx.send(Vec::from_iter(
                     self.bosses.values().map(|e| e.boss_data.clone()),
                 ));
+            }
+            ClientExportMetrics(tx) => {
+                let _ = tx.send(self.metrics.export());
             }
             ClientRemoveBosses(f) => {
                 self.remove_bosses(f.0);

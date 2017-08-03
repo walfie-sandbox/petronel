@@ -155,7 +155,7 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
         self
     }
 
-    pub fn build(self) -> (Client<Sub>, Worker<H, S, Sub, F, M>)
+    pub fn build(self) -> (Client<Sub, M::Export>, Worker<H, S, Sub, F, M>)
     where
         S: Stream<Item = RaidInfo, Error = Error>,
         H: ImageHasher,
@@ -166,9 +166,11 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
         let (tx, rx) = mpsc::unbounded();
 
         let stream_events = self.stream.map(
-            Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub>,
+            Event::NewRaidInfo as
+                fn(RaidInfo) -> Event<Sub, M::Export>,
         );
-        let rx = rx.or_else((|()| Ok(Event::ClientReadError)) as fn(()) -> Result<Event<Sub>>);
+        let to_read_error = |()| Ok(Event::ClientReadError);
+        let rx = rx.or_else(to_read_error as fn(()) -> Result<Event<Sub, M::Export>>);
 
         let (hash_requester, hash_receiver) =
             image_hash::channel(self.image_hasher, MAX_CONCURRENT_IMAGE_HASHER_REQUESTS);
@@ -178,7 +180,8 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
                      boss_name: msg.boss_name,
                      image_hash: msg.image_hash,
                  }
-             }) as fn(BossImageHash) -> Event<Sub>,
+             }) as
+                fn(BossImageHash) -> Event<Sub, M::Export>,
         );
 
         let cached_boss_list = (self.filter_map_message)(Message::BossList(&[]));

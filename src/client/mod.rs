@@ -19,7 +19,7 @@ use std::fmt;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub(crate) enum Event<Sub> {
+pub(crate) enum Event<Sub, M> {
     NewRaidInfo(RaidInfo),
     NewImageHash {
         boss_name: BossName,
@@ -34,8 +34,8 @@ pub(crate) enum Event<Sub> {
 
     SubscriberSubscribe {
         subscriber: Sub,
-        client: Client<Sub>,
-        sender: oneshot::Sender<Subscription<Sub>>,
+        client: Client<Sub, M>,
+        sender: oneshot::Sender<Subscription<Sub, M>>,
     },
     SubscriberUnsubscribe(SubId),
 
@@ -45,6 +45,7 @@ pub(crate) enum Event<Sub> {
         sender: oneshot::Sender<Vec<Arc<RaidTweet>>>,
     },
     ClientExportMetadata(oneshot::Sender<Vec<RaidBossMetadata>>),
+    ClientExportMetrics(oneshot::Sender<M>),
     ClientRemoveBosses(RemoveBossesPredicate),
 
     ClientReadError,
