@@ -23,10 +23,22 @@ impl Metrics for NoOp {
     fn export(&self) -> Self::Export {}
 }
 
+pub fn simple<F, T>(export_function: F) -> Simple<F>
+where
+    F: Fn(&Simple<F>) -> T,
+{
+    Simple {
+        total_subscriber_count: 0,
+        boss_counts: HashMap::new(),
+        export_function,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Simple<F> {
     total_subscriber_count: u32,
     boss_counts: HashMap<BossName, Counts>,
+    #[serde(skip)]
     export_function: F,
 }
 
