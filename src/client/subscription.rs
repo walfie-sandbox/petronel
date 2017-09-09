@@ -7,13 +7,13 @@ use std::collections::HashSet;
 // TODO: Figure out if there is a way to do this without owning `Client`
 #[must_use = "Subscriptions are cancelled when they go out of scope"]
 #[derive(Debug)]
-pub struct Subscription<Sub> {
+pub struct Subscription<Sub, M = ()> {
     pub(crate) id: SubId,
     pub(crate) following: HashSet<BossName>,
-    pub(crate) client: Client<Sub>,
+    pub(crate) client: Client<Sub, M>,
 }
 
-impl<Sub> Subscription<Sub> {
+impl<Sub, M> Subscription<Sub, M> {
     pub fn follow<B>(&mut self, boss_name: B)
     where
         B: Into<BossName>,
@@ -58,7 +58,7 @@ impl<Sub> Subscription<Sub> {
     }
 }
 
-impl<Sub> Drop for Subscription<Sub> {
+impl<Sub, M> Drop for Subscription<Sub, M> {
     fn drop(&mut self) {
         let mut following = ::std::mem::replace(&mut self.following, HashSet::with_capacity(0));
 

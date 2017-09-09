@@ -7,6 +7,7 @@ use futures::stream::{Map, OrElse, Select};
 use futures::unsync::mpsc;
 use id_pool::{Id as SubId, IdPool};
 use image_hash::{BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender, ImageHasher};
+use metrics::Metrics;
 use model::{BossLevel, BossName, Message, RaidBoss, RaidBossMetadata, RaidTweet};
 use raid::RaidInfo;
 use std::collections::{HashMap, HashSet};
@@ -23,22 +24,26 @@ pub(crate) struct RaidBossEntry<Sub> {
 }
 
 #[must_use = "futures do nothing unless polled"]
-pub struct Worker<H, S, Sub, F>
+pub struct Worker<H, S, Sub, F, M>
 where
     Sub: Subscriber,
     H: ImageHasher,
+    M: Metrics,
 {
     pub(crate) hash_requester: ImageHashSender,
     pub(crate) id_pool: IdPool,
     pub(crate) events: Select<
-        Map<S, fn(RaidInfo) -> Event<Sub>>,
+        Map<S, fn(RaidInfo) -> Event<Sub, M::Export>>,
         Select<
             OrElse<
-                mpsc::UnboundedReceiver<Event<Sub>>,
-                fn(()) -> Result<Event<Sub>>,
-                Result<Event<Sub>>,
+                mpsc::UnboundedReceiver<Event<Sub, M::Export>>,
+                fn(()) -> Result<Event<Sub, M::Export>>,
+                Result<Event<Sub, M::Export>>,
             >,
-            Map<ImageHashReceiver<H>, fn(BossImageHash) -> Event<Sub>>,
+            Map<
+                ImageHashReceiver<H>,
+                fn(BossImageHash) -> Event<Sub, M::Export>,
+            >,
         >,
     >,
     pub(crate) bosses: HashMap<BossName, RaidBossEntry<Sub>>,
@@ -48,15 +53,17 @@ where
     pub(crate) filter_map_message: F,
     pub(crate) cached_boss_list: Option<Sub::Item>,
     pub(crate) heartbeat: Option<Sub::Item>,
+    pub(crate) metrics: M,
 }
 
-impl<H, S, Sub, F> Worker<H, S, Sub, F>
+impl<H, S, Sub, F, M> Worker<H, S, Sub, F, M>
 where
     H: ImageHasher,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Option<Sub::Item>,
+    M: Metrics,
 {
-    fn handle_event(&mut self, event: Event<Sub>) {
+    fn handle_event(&mut self, event: Event<Sub, M::Export>) {
         use super::Event::*;
 
         match event {
@@ -128,6 +135,9 @@ where
                     self.bosses.values().map(|e| e.boss_data.clone()),
                 ));
             }
+            ClientExportMetrics(tx) => {
+                let _ = tx.send(self.metrics.export());
+            }
             ClientRemoveBosses(f) => {
                 self.remove_bosses(f.0);
             }
@@ -136,13 +146,14 @@ where
     }
 
     fn remove_bosses(&mut self, f: Box<Fn(&RaidBossMetadata) -> bool>) {
-        let (filter_map, subscribers, requested_bosses) = (
+        let (filter_map, subscribers, requested_bosses, metrics) = (
             &self.filter_map_message,
             &mut self.subscribers,
             &mut self.requested_bosses,
+            &mut self.metrics,
         );
 
-        self.bosses.retain(|_, mut entry| {
+        self.bosses.retain(|_, entry| {
             let should_remove = (f)(&entry.boss_data);
 
             if should_remove {
@@ -155,6 +166,8 @@ where
                     let broadcast = ::std::mem::replace(&mut entry.broadcast, Broadcast::new());
                     requested_bosses.insert(boss_name.clone(), broadcast);
                 }
+
+                metrics.remove_boss(boss_name);
             }
 
             !should_remove
@@ -164,11 +177,17 @@ where
     fn subscribe(&mut self, subscriber: Sub) -> SubId {
         let id = self.id_pool.get();
         self.subscribers.subscribe(id.clone(), subscriber);
+        self.metrics.set_total_subscriber_count(
+            self.subscribers.subscriber_count() as u32,
+        );
         id
     }
 
     fn unsubscribe(&mut self, id: &SubId) {
         self.subscribers.unsubscribe(id);
+        self.metrics.set_total_subscriber_count(
+            self.subscribers.subscriber_count() as u32,
+        );
         self.id_pool.recycle(id.clone());
     }
 
@@ -178,6 +197,10 @@ where
 
             if let Some(entry) = self.bosses.get_mut(&boss_name) {
                 entry.broadcast.subscribe(id, subscriber);
+                self.metrics.set_follower_count(
+                    &boss_name,
+                    entry.broadcast.subscriber_count() as u32,
+                );
             } else {
                 match self.requested_bosses.entry(boss_name) {
                     Entry::Occupied(mut entry) => {
@@ -196,6 +219,10 @@ where
     fn unfollow(&mut self, id: &SubId, boss_name: BossName) {
         if let Some(entry) = self.bosses.get_mut(&boss_name) {
             entry.broadcast.unsubscribe(&id);
+            self.metrics.set_follower_count(
+                &boss_name,
+                entry.broadcast.subscriber_count() as u32,
+            );
         } else if let Entry::Occupied(mut entry) = self.requested_bosses.entry(boss_name) {
             let is_empty = {
                 let broadcast = entry.get_mut();
@@ -212,7 +239,7 @@ where
     fn handle_image_hash(&mut self, boss_name: BossName, image_hash: ImageHash) {
         // TODO: Is it possible to avoid finding the same boss twice?
         let (level, language) = match self.bosses.get_mut(&boss_name) {
-            Some(mut entry) => {
+            Some(entry) => {
                 entry.boss_data.image_hash = Some(image_hash);
 
                 (entry.boss_data.boss.level, entry.boss_data.boss.language)
@@ -235,7 +262,7 @@ where
         }
 
         if !matches.is_empty() {
-            if let Some(mut entry) = self.bosses.get_mut(&boss_name) {
+            if let Some(entry) = self.bosses.get_mut(&boss_name) {
                 entry.boss_data.boss.translations.extend(matches);
 
                 let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss_data.boss));
@@ -256,6 +283,8 @@ where
     }
 
     fn handle_raid_info(&mut self, info: RaidInfo) {
+        self.metrics.inc_tweet_count(&info.tweet.boss_name);
+
         let is_new_boss = match self.bosses.entry(info.tweet.boss_name.clone()) {
             Entry::Occupied(mut entry) => {
                 let value = entry.get_mut();
@@ -336,12 +365,13 @@ where
     }
 }
 
-impl<H, S, Sub, F> Future for Worker<H, S, Sub, F>
+impl<H, S, Sub, F, M> Future for Worker<H, S, Sub, F, M>
 where
     H: ImageHasher,
     S: Stream<Item = RaidInfo, Error = Error>,
     Sub: Subscriber + Clone,
     F: Fn(Message) -> Option<Sub::Item>,
+    M: Metrics,
 {
     type Item = ();
     type Error = Error;

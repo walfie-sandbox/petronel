@@ -24,6 +24,7 @@ use hyper::server::{Http, Request, Response, Service};
 use hyper_tls::HttpsConnector;
 use petronel::{Client, ClientBuilder, Subscriber, Subscription, Token};
 use petronel::error::*;
+use petronel::metrics;
 use petronel::model::{BossName, Message};
 use regex::Regex;
 use serde::Serialize;
@@ -61,6 +62,7 @@ quick_main!(|| -> Result<()> {
     let (petronel_client, petronel_worker) =
         ClientBuilder::from_hyper_client(&hyper_client, &token)
             .with_history_size(10)
+            .with_metrics(metrics::simple(|ref m| serde_json::to_vec(&m).unwrap()))
             .with_subscriber::<Sender>()
             .filter_map_message(|msg| match msg {
                 // Don't emit anything for heartbeat messages
@@ -118,7 +120,7 @@ impl Subscriber for Sender {
     }
 }
 
-struct PetronelServer(Client<Sender>);
+struct PetronelServer(Client<Sender, Vec<u8>>);
 
 impl Clone for PetronelServer {
     fn clone(&self) -> Self {
@@ -133,7 +135,7 @@ struct JsonError {
 
 struct Body {
     body: hyper::Body,
-    _subscription: Option<Subscription<Sender>>,
+    _subscription: Option<Subscription<Sender, Vec<u8>>>,
 }
 
 impl Stream for Body {
@@ -176,7 +178,7 @@ type ServiceResponse = Response<Body>;
 type ServiceFuture = Box<Future<Item = ServiceResponse, Error = hyper::Error>>;
 
 fn response<T: Serialize>(status: StatusCode, t: &T) -> ServiceResponse {
-    let json = serde_json::to_string(t).unwrap();
+    let json = serde_json::to_vec(t).unwrap();
 
     Response::new()
         .with_status(status)
@@ -199,6 +201,19 @@ impl Service for PetronelServer {
             let resp = self.0
                 .bosses()
                 .map(|bosses| response(StatusCode::Ok, &bosses))
+                .map_err(|_| hyper::Error::Incomplete);
+
+            Box::new(resp) as Self::Future
+        } else if path == "/metrics" {
+            let resp = self.0
+                .export_metrics()
+                .map(|body| {
+                    Response::new()
+                        .with_status(StatusCode::Ok)
+                        .with_header(header::ContentLength(body.len() as u64))
+                        .with_header(header::ContentType::json())
+                        .with_body(body)
+                })
                 .map_err(|_| hyper::Error::Incomplete);
 
             Box::new(resp) as Self::Future

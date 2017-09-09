@@ -3,7 +3,6 @@ extern crate error_chain;
 
 extern crate futures;
 extern crate tokio_core;
-extern crate twitter_stream;
 extern crate petronel;
 
 use futures::Stream;
