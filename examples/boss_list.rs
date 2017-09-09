@@ -5,7 +5,6 @@ extern crate hyper;
 extern crate hyper_tls;
 extern crate futures;
 extern crate tokio_core;
-extern crate twitter_stream;
 extern crate petronel;
 
 use futures::{Future, Stream};

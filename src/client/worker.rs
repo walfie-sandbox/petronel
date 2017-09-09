@@ -153,7 +153,7 @@ where
             &mut self.metrics,
         );
 
-        self.bosses.retain(|_, mut entry| {
+        self.bosses.retain(|_, entry| {
             let should_remove = (f)(&entry.boss_data);
 
             if should_remove {
@@ -239,7 +239,7 @@ where
     fn handle_image_hash(&mut self, boss_name: BossName, image_hash: ImageHash) {
         // TODO: Is it possible to avoid finding the same boss twice?
         let (level, language) = match self.bosses.get_mut(&boss_name) {
-            Some(mut entry) => {
+            Some(entry) => {
                 entry.boss_data.image_hash = Some(image_hash);
 
                 (entry.boss_data.boss.level, entry.boss_data.boss.language)
@@ -262,7 +262,7 @@ where
         }
 
         if !matches.is_empty() {
-            if let Some(mut entry) = self.bosses.get_mut(&boss_name) {
+            if let Some(entry) = self.bosses.get_mut(&boss_name) {
                 entry.boss_data.boss.translations.extend(matches);
 
                 let message = (self.filter_map_message)(Message::BossUpdate(&entry.boss_data.boss));
