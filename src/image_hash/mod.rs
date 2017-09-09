@@ -44,7 +44,7 @@ pub struct ImageHashSender {
 impl ImageHashSender {
     pub fn request(&self, boss_name: BossName, image_url: &str) {
         if let Ok(url) = image_url.parse() {
-            let _ = mpsc::UnboundedSender::send(&self.sink, (boss_name, url));
+            let _ = self.sink.unbounded_send((boss_name, url));
         }
     }
 }

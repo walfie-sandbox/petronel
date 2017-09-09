@@ -15,7 +15,7 @@ impl<Sub, M> Clone for Client<Sub, M> {
 
 impl<Sub, M> Client<Sub, M> {
     fn send(&self, event: Event<Sub, M>) {
-        let _ = mpsc::UnboundedSender::send(&self.0, event);
+        let _ = self.0.unbounded_send(event);
     }
 
     fn request<T, F>(&self, f: F) -> AsyncResult<T>
