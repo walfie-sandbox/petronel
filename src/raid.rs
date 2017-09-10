@@ -35,8 +35,8 @@ pub struct RaidInfoStream(FlattenStream<FutureTwitterStream>);
 // TODO: Add version that reconnects on disconnect/error
 impl RaidInfoStream {
     fn track() -> String {
-        // "Lv15,Lv20,Lv25,Lv30,...,Lv175,I need backup!Battle ID:"
-        let mut track = (3..35)
+        // "Lv15,Lv20,Lv25,Lv30,...,Lv200,I need backup!Battle ID:"
+        let mut track = (3..40)
             .map(|i| format!("Lv{}", i * 5))
             .collect::<Vec<_>>()
             .join(",");

@@ -165,10 +165,13 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
     {
         let (tx, rx) = mpsc::unbounded();
 
-        let stream_events = self.stream.map(
-            Event::NewRaidInfo as
-                fn(RaidInfo) -> Event<Sub, M::Export>,
-        );
+        // When the Twitter stream ends, fail with an error
+        let stream_events = self.stream
+            .chain(::futures::stream::once(
+                Err(Error::from_kind(ErrorKind::Closed)),
+            ))
+            .map(Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub, M::Export>);
+
         let to_read_error = |()| Ok(Event::ClientReadError);
         let rx = rx.or_else(to_read_error as fn(()) -> Result<Event<Sub, M::Export>>);
 
@@ -185,7 +188,6 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
         );
 
         let cached_boss_list = (self.filter_map_message)(Message::BossList(&[]));
-
 
         let mut bosses = HashMap::new();
         for boss_data in self.bosses.into_iter() {
