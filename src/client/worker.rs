@@ -3,7 +3,7 @@ use broadcast::{Broadcast, Subscriber};
 use circular_buffer::CircularBuffer;
 use error::*;
 use futures::{Async, Future, Poll, Stream};
-use futures::stream::{Map, OrElse, Select};
+use futures::stream::{Chain, Map, Once, OrElse, Select};
 use futures::unsync::mpsc;
 use id_pool::{Id as SubId, IdPool};
 use image_hash::{BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender, ImageHasher};
@@ -33,7 +33,10 @@ where
     pub(crate) hash_requester: ImageHashSender,
     pub(crate) id_pool: IdPool,
     pub(crate) events: Select<
-        Map<S, fn(RaidInfo) -> Event<Sub, M::Export>>,
+        Map<
+            Chain<S, Once<RaidInfo, Error>>,
+            fn(RaidInfo) -> Event<Sub, M::Export>,
+        >,
         Select<
             OrElse<
                 mpsc::UnboundedReceiver<Event<Sub, M::Export>>,
