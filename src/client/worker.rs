@@ -288,18 +288,32 @@ where
     fn handle_raid_info(&mut self, info: RaidInfo) {
         self.metrics.inc_tweet_count(&info.tweet.boss_name);
 
+        let mapped_tweet_message = (self.filter_map_message)(Message::Tweet(&info.tweet));
+
+        // Currently, only one translated boss should exist at most, but in
+        // case the game gets translated to another language, this should still
+        // handle that case. This enum exists because we don't want to allocate
+        // a Vec in the cases where only one translation exists.
+        enum TranslationsExist {
+            One {
+                boss_name: BossName,
+                tweet: Arc<RaidTweet>,
+            },
+            Multiple {
+                boss_names: Vec<BossName>,
+                tweet: Arc<RaidTweet>,
+            },
+        }
+
+        let mut translations: Option<TranslationsExist> = None;
+
         let is_new_boss = match self.bosses.entry(info.tweet.boss_name.clone()) {
             Entry::Occupied(mut entry) => {
                 let value = entry.get_mut();
 
                 value.boss_data.last_seen = info.tweet.created_at;
 
-                {
-                    let message = Message::Tweet(&info.tweet);
-                    value.broadcast.maybe_send(
-                        (self.filter_map_message)(message).as_ref(),
-                    );
-                }
+                value.broadcast.maybe_send(mapped_tweet_message.as_ref());
 
                 if value.boss_data.boss.image.is_none() {
                     if let Some(image_url) = info.image {
@@ -311,7 +325,27 @@ where
                     }
                 }
 
-                value.recent_tweets.push(Arc::new(info.tweet));
+                let arc_tweet = Arc::new(info.tweet);
+
+                // If this boss has translations, send the tweet to that boss' subscribers too
+                let boss_translations = &value.boss_data.boss.translations;
+                match boss_translations.len() {
+                    1 => {
+                        translations = Some(TranslationsExist::One {
+                            boss_name: boss_translations.iter().cloned().next().unwrap(),
+                            tweet: arc_tweet.clone(),
+                        });
+                    }
+                    0 => {}
+                    _ => {
+                        translations = Some(TranslationsExist::Multiple {
+                            boss_names: boss_translations.iter().cloned().collect(),
+                            tweet: arc_tweet.clone(),
+                        });
+                    }
+                }
+
+                value.recent_tweets.push(arc_tweet);
                 false
             }
             Entry::Vacant(entry) => {
@@ -337,8 +371,7 @@ where
                             .as_ref(),
                     );
 
-                    let tweet_message = Message::Tweet(&info.tweet);
-                    broadcast.maybe_send((self.filter_map_message)(tweet_message).as_ref());
+                    broadcast.maybe_send(mapped_tweet_message.as_ref());
                 }
 
                 if let Some(ref image_url) = boss.image {
@@ -361,6 +394,25 @@ where
                 true
             }
         };
+
+        // Broadcast the tweet to the equivalent translated bosses
+        match translations {
+            Some(TranslationsExist::One { boss_name, tweet }) => {
+                if let Some(value) = self.bosses.get_mut(&boss_name) {
+                    value.broadcast.maybe_send(mapped_tweet_message.as_ref());
+                    value.recent_tweets.push(tweet);
+                }
+            }
+            None => {}
+            Some(TranslationsExist::Multiple { boss_names, tweet }) => {
+                for boss_name in boss_names {
+                    if let Some(value) = self.bosses.get_mut(&boss_name) {
+                        value.broadcast.maybe_send(mapped_tweet_message.as_ref());
+                        value.recent_tweets.push(tweet.clone());
+                    }
+                }
+            }
+        }
 
         if is_new_boss {
             self.update_cached_boss_list();
