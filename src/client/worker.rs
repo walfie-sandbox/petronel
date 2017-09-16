@@ -86,10 +86,10 @@ where
                 self.unsubscribe(&id);
             }
             SubscriberFollow { id, boss_name } => {
-                self.follow(id, boss_name);
+                self.follow(id, boss_name, true);
             }
             SubscriberUnfollow { id, boss_name } => {
-                self.unfollow(&id, boss_name);
+                self.unfollow(&id, boss_name, true);
             }
             SubscriberGetBosses(id) => {
                 if let Some(sub) = self.subscribers.get_mut(&id) {
@@ -194,38 +194,60 @@ where
         self.id_pool.recycle(id.clone());
     }
 
-    fn follow(&mut self, id: SubId, boss_name: BossName) {
+    fn follow(&mut self, id: SubId, boss_name: BossName, follow_translated: bool) {
+        let mut translations_to_follow: Option<Vec<BossName>> = None;
+
         if let Some(sub) = self.subscribers.get(&id) {
             let subscriber = sub.clone();
 
             if let Some(entry) = self.bosses.get_mut(&boss_name) {
-                entry.broadcast.subscribe(id, subscriber);
+                entry.broadcast.subscribe(id.clone(), subscriber);
                 self.metrics.set_follower_count(
                     &boss_name,
                     entry.broadcast.subscriber_count() as u32,
                 );
+
+                let translations = &entry.boss_data.boss.translations;
+
+                if follow_translated && !translations.is_empty() {
+                    translations_to_follow = Some(translations.iter().cloned().collect::<Vec<_>>());
+                }
             } else {
                 match self.requested_bosses.entry(boss_name) {
                     Entry::Occupied(mut entry) => {
-                        entry.get_mut().subscribe(id, subscriber);
+                        entry.get_mut().subscribe(id.clone(), subscriber);
                     }
                     Entry::Vacant(entry) => {
                         let mut broadcast = Broadcast::new();
-                        broadcast.subscribe(id, subscriber);
+                        broadcast.subscribe(id.clone(), subscriber);
                         entry.insert(broadcast);
                     }
                 }
             }
         }
+
+        if let Some(mut translations) = translations_to_follow {
+            for translated in translations.drain(..) {
+                self.follow(id.clone(), translated, false);
+            }
+        }
     }
 
-    fn unfollow(&mut self, id: &SubId, boss_name: BossName) {
+    fn unfollow(&mut self, id: &SubId, boss_name: BossName, unfollow_translated: bool) {
+        let mut translations_to_unfollow: Option<Vec<BossName>> = None;
+
         if let Some(entry) = self.bosses.get_mut(&boss_name) {
             entry.broadcast.unsubscribe(&id);
             self.metrics.set_follower_count(
                 &boss_name,
                 entry.broadcast.subscriber_count() as u32,
             );
+
+            let translations = &entry.boss_data.boss.translations;
+
+            if unfollow_translated && !translations.is_empty() {
+                translations_to_unfollow = Some(translations.iter().cloned().collect::<Vec<_>>());
+            }
         } else if let Entry::Occupied(mut entry) = self.requested_bosses.entry(boss_name) {
             let is_empty = {
                 let broadcast = entry.get_mut();
@@ -235,6 +257,12 @@ where
 
             if is_empty {
                 entry.remove();
+            }
+        }
+
+        if let Some(mut translations) = translations_to_unfollow {
+            for translated in translations.drain(..) {
+                self.unfollow(&id, translated, false);
             }
         }
     }
