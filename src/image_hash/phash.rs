@@ -3,7 +3,7 @@ use image::{DynamicImage, FilterType};
 const SIZE: usize = 32;
 const SMALL_SIZE: usize = 8;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ImageHash(u64);
 
 impl ImageHash {
