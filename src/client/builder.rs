@@ -159,7 +159,7 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
     where
         S: Stream<Item = RaidInfo, Error = Error>,
         H: ImageHasher,
-        Sub: Subscriber,
+        Sub: Subscriber + Clone, // TODO: Change Sub to not require Clone
         F: Fn(Message) -> Option<Sub::Item>,
         M: Metrics,
     {
@@ -201,7 +201,7 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
             bosses.insert(boss_name, entry);
         }
 
-        let future = Worker {
+        let mut worker = Worker {
             hash_requester,
             id_pool: IdPool::new(),
             events: stream_events.select(rx.select(hash_events)),
@@ -215,6 +215,8 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
             metrics: self.metrics,
         };
 
-        (Client(tx), future)
+        worker.update_cached_boss_list();
+
+        (Client(tx), worker)
     }
 }

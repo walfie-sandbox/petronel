@@ -276,7 +276,7 @@ where
         }
     }
 
-    fn update_cached_boss_list(&mut self) {
+    pub(crate) fn update_cached_boss_list(&mut self) {
         let updated = self.bosses
             .values()
             .map(|entry| &entry.boss_data.boss)
