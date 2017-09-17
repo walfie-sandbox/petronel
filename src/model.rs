@@ -28,7 +28,7 @@ pub enum Message<'a> {
     BossRemove(&'a BossName),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RaidBoss {
     pub name: BossName,
     pub level: BossLevel,
@@ -38,14 +38,14 @@ pub struct RaidBoss {
     pub translations: HashSet<BossName>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub struct RaidBossMetadata {
     pub boss: RaidBoss,
     pub last_seen: DateTime,
     pub image_hash: Option<ImageHash>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct BossName(DefaultAtom);
 impl Deref for BossName {
     type Target = str;
@@ -85,7 +85,7 @@ impl BossName {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct BossImageUrl(DefaultAtom);
 impl Deref for BossImageUrl {
     type Target = str;
@@ -117,7 +117,7 @@ impl fmt::Display for BossImageUrl {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RaidTweet {
     pub tweet_id: TweetId,
     pub boss_name: BossName,
@@ -132,7 +132,7 @@ pub struct RaidTweet {
 }
 
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Language {
     Japanese,
     English,
