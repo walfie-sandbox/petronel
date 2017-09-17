@@ -10,6 +10,16 @@ impl ImageHash {
     pub fn new(img: &DynamicImage) -> Self {
         ImageHash(get_hash(img))
     }
+
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+}
+
+impl From<u64> for ImageHash {
+    fn from(value: u64) -> ImageHash {
+        ImageHash(value)
+    }
 }
 
 fn get_hash(img: &DynamicImage) -> u64 {
