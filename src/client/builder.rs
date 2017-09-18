@@ -177,14 +177,18 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
 
         let (hash_requester, hash_receiver) =
             image_hash::channel(self.image_hasher, MAX_CONCURRENT_IMAGE_HASHER_REQUESTS);
-        let hash_events = hash_receiver.map(
-            (|msg| {
-                 Event::NewImageHash {
-                     boss_name: msg.boss_name,
-                     image_hash: msg.image_hash,
-                 }
-             }) as
-                fn(BossImageHash) -> Event<Sub, M::Export>,
+
+        let filter_map_hashes = |msg: BossImageHash| match msg.image_hash {
+            Some(image_hash) => Some(Event::NewImageHash {
+                boss_name: msg.boss_name,
+                image_hash,
+            }),
+            _ => None,
+        };
+
+        let hash_events = hash_receiver.filter_map(
+            filter_map_hashes as
+                fn(BossImageHash) -> Option<Event<Sub, M::Export>>,
         );
 
         let cached_boss_list = (self.filter_map_message)(Message::BossList(&[]));

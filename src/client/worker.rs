@@ -3,7 +3,7 @@ use broadcast::{Broadcast, Subscriber};
 use circular_buffer::CircularBuffer;
 use error::*;
 use futures::{Async, Future, Poll, Stream};
-use futures::stream::{Chain, Map, Once, OrElse, Select};
+use futures::stream::{Chain, FilterMap, Map, Once, OrElse, Select};
 use futures::unsync::mpsc;
 use id_pool::{Id as SubId, IdPool};
 use image_hash::{BossImageHash, ImageHash, ImageHashReceiver, ImageHashSender, ImageHasher};
@@ -43,9 +43,9 @@ where
                 fn(()) -> Result<Event<Sub, M::Export>>,
                 Result<Event<Sub, M::Export>>,
             >,
-            Map<
+            FilterMap<
                 ImageHashReceiver<H>,
-                fn(BossImageHash) -> Event<Sub, M::Export>,
+                fn(BossImageHash) -> Option<Event<Sub, M::Export>>,
             >,
         >,
     >,
