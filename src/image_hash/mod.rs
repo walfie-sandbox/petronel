@@ -14,7 +14,7 @@ use std::collections::HashSet;
 #[derive(Debug)]
 pub struct BossImageHash {
     pub boss_name: BossName,
-    pub image_hash: ImageHash,
+    pub image_hash: Option<ImageHash>,
 }
 
 pub fn channel<H, F>(image_hasher: H, concurrency: usize) -> (ImageHashSender, ImageHashReceiver<H>)
@@ -93,11 +93,18 @@ where
             .and_then(|resp| resp.body().concat2())
             .then(|r| r.chain_err(|| ErrorKind::ImageHash))
             .and_then(|bytes| crop_and_hash(&bytes).into_future())
-            .map(move |image_hash| {
-                BossImageHash {
-                    boss_name,
-                    image_hash,
+            .then(move |image_hash| {
+                // If image hashing fails, we don't want to error out,
+                // we can just retry next time we get an image.
+                if let Err(ref e) = image_hash {
+                    // TODO: Maybe don't eprintln
+                    eprintln!("Failed to get image hash: {:?}", e);
                 }
+
+                Ok(BossImageHash {
+                    boss_name,
+                    image_hash: image_hash.ok(),
+                })
             });
 
         Box::new(result)
