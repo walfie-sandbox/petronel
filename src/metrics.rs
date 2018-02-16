@@ -25,21 +25,27 @@ impl Metrics for NoOp {
 
 pub fn simple<F, T>(export_function: F) -> Simple<F>
 where
-    F: Fn(&Simple<F>) -> T,
+    F: Fn(&SimpleMetrics) -> T,
 {
     Simple {
-        total_subscriber_count: 0,
-        boss_counts: HashMap::new(),
+        inner: SimpleMetrics {
+            total_subscriber_count: 0,
+            boss_counts: HashMap::new(),
+        },
         export_function,
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Simple<F> {
+    inner: SimpleMetrics,
+    export_function: F,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SimpleMetrics {
     total_subscriber_count: u32,
     boss_counts: HashMap<BossName, Counts>,
-    #[serde(skip)]
-    export_function: F,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -50,17 +56,17 @@ struct Counts {
 
 impl<T, F> Metrics for Simple<F>
 where
-    F: Fn(&Simple<F>) -> T,
+    F: Fn(&SimpleMetrics) -> T,
 {
     type Export = T;
 
     fn set_total_subscriber_count(&mut self, count: u32) {
-        self.total_subscriber_count = count;
+        self.inner.total_subscriber_count = count;
     }
 
     fn set_follower_count(&mut self, boss_name: &BossName, count: u32) {
         // TODO: Maybe have a way that doesn't require cloning
-        match self.boss_counts.entry(boss_name.clone()) {
+        match self.inner.boss_counts.entry(boss_name.clone()) {
             Entry::Occupied(mut e) => {
                 e.get_mut().followers = count;
             }
@@ -75,7 +81,7 @@ where
 
     fn inc_tweet_count(&mut self, boss_name: &BossName) {
         // TODO: Maybe have a way that doesn't require cloning
-        match self.boss_counts.entry(boss_name.clone()) {
+        match self.inner.boss_counts.entry(boss_name.clone()) {
             Entry::Occupied(mut e) => {
                 let counts = e.get_mut();
                 counts.tweets = counts.tweets.wrapping_add(1);
@@ -90,10 +96,10 @@ where
     }
 
     fn remove_boss(&mut self, boss_name: &BossName) {
-        self.boss_counts.remove(boss_name);
+        self.inner.boss_counts.remove(boss_name);
     }
 
     fn export(&self) -> Self::Export {
-        (self.export_function)(self)
+        (self.export_function)(&self.inner)
     }
 }

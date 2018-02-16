@@ -57,10 +57,12 @@ quick_main!(|| -> Result<()> {
         .connector(HttpsConnector::new(4, &handle).chain_err(|| "HTTPS error")?)
         .build(&handle);
 
+    let metrics_recorder = metrics::simple(|m| serde_json::to_vec(&m).unwrap());
+
     let (petronel_client, petronel_worker) =
         ClientBuilder::from_hyper_client(&hyper_client, &token)
             .with_history_size(10)
-            .with_metrics(metrics::simple(|ref m| serde_json::to_vec(&m).unwrap()))
+            .with_metrics(metrics_recorder)
             .with_subscriber::<Sender>()
             .filter_map_message(|msg| match msg {
                 // Don't emit anything for heartbeat messages

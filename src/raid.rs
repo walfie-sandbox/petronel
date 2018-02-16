@@ -14,13 +14,15 @@ r#"<a href="http://granbluefantasy.jp/" rel="nofollow">グランブルー ファ
 
 lazy_static! {
     static ref REGEX_JAPANESE: Regex = Regex::new("\
-        (?P<text>(?s).*)参加者募集！参戦ID：(?P<id>[0-9A-F]+)\n\
+        (?P<text>(?s).*)(?P<id>[0-9A-F]{8}) :参戦ID\n\
+        参加者募集！\n\
         (?P<boss>.+)\n?\
         (?P<url>.*)\
     ").expect("invalid Japanese raid tweet regex");
 
     static ref REGEX_ENGLISH: Regex = Regex::new("\
-        (?P<text>(?s).*)I need backup!Battle ID: (?P<id>[0-9A-F]+)\n\
+        (?P<text>(?s).*)(?P<id>[0-9A-F]{8}) :Battle ID\n\
+        I need backup!\n\
         (?P<boss>.+)\n?\
         (?P<url>.*)\
     ").expect("invalid English raid tweet regex");
@@ -34,15 +36,8 @@ pub struct RaidInfoStream(FlattenStream<FutureTwitterStream>);
 
 // TODO: Add version that reconnects on disconnect/error
 impl RaidInfoStream {
-    fn track() -> String {
-        // "Lv15,Lv20,Lv25,Lv30,...,Lv200,I need backup!Battle ID:"
-        let mut track = (3..40)
-            .map(|i| format!("Lv{}", i * 5))
-            .collect::<Vec<_>>()
-            .join(",");
-        track.push_str(",I need backup!Battle ID:");
-
-        track
+    fn track() -> &'static str {
+        "参加者募集！,:参戦ID,I need backup!,:Battle ID"
     }
 
     pub fn with_client<C, B>(hyper_client: &hyper::Client<C, B>, token: &Token) -> Self
@@ -55,7 +50,7 @@ impl RaidInfoStream {
             .client(&hyper_client)
             .user_agent(Some("petronel")) // TODO: Make this configurable?
             .timeout(None)
-            .track(Some(&Self::track()))
+            .track(Some(Self::track()))
             .listen()
             .flatten_stream();
 
@@ -272,7 +267,8 @@ mod test {
     fn parse_without_extra_text() {
         assert_eq!(
             parse_text(
-                "参加者募集！参戦ID：ABCD1234\n\
+                "ABCD1234 :参戦ID\n\
+                 参加者募集！\n\
                  Lv60 オオゾラッコ\n\
                  http://example.com/image-that-is-ignored.png",
             ),
@@ -286,7 +282,8 @@ mod test {
 
         assert_eq!(
             parse_text(
-                "I need backup!Battle ID: ABCD1234\n\
+                "ABCD1234 :Battle ID\n\
+                 I need backup!\n\
                  Lvl 60 Ozorotter\n\
                  http://example.com/image-that-is-ignored.png",
             ),
@@ -303,7 +300,8 @@ mod test {
     fn parse_without_image_url() {
         assert_eq!(
             parse_text(
-                "Help me 参加者募集！参戦ID：ABCD1234\n\
+                "Help me ABCD1234 :参戦ID\n\
+                 参加者募集！\n\
                  Lv60 オオゾラッコ",
             ),
             Some(TweetParts::new(
@@ -316,7 +314,8 @@ mod test {
 
         assert_eq!(
             parse_text(
-                "Help me I need backup!Battle ID: ABCD1234\n\
+                "Help me ABCD1234 :Battle ID\n\
+                 I need backup!\n\
                  Lvl 60 Ozorotter",
             ),
             Some(TweetParts::new(
@@ -332,7 +331,8 @@ mod test {
     fn parse_with_extra_newline() {
         assert_eq!(
             parse_text(
-                "参加者募集！参戦ID：ABCD1234\n\
+                "ABCD1234 :参戦ID\n\
+                 参加者募集！\n\
                  Lv60 オオゾラッコ\n",
             ),
             Some(TweetParts::new(
@@ -345,7 +345,8 @@ mod test {
 
         assert_eq!(
             parse_text(
-                "I need backup!Battle ID: ABCD1234\n\
+                "ABCD1234 :Battle ID\n\
+                 I need backup!\n\
                  Lvl 60 Ozorotter\n",
             ),
             Some(TweetParts::new(
@@ -361,7 +362,8 @@ mod test {
     fn parse_extra_text() {
         assert_eq!(
             parse_text(
-                "Help me 参加者募集！参戦ID：ABCD1234\n\
+                "Help me ABCD1234 :参戦ID\n\
+                 参加者募集！\n\
                  Lv60 オオゾラッコ\n\
                  http://example.com/image-that-is-ignored.png",
             ),
@@ -375,7 +377,8 @@ mod test {
 
         assert_eq!(
             parse_text(
-                "Help me I need backup!Battle ID: ABCD1234\n\
+                "Help me ABCD1234 :Battle ID\n\
+                 I need backup!\n\
                  Lvl 60 Ozorotter\n\
                  http://example.com/image-that-is-ignored.png",
             ),
@@ -396,7 +399,8 @@ mod test {
                  Newlines\n\
                  Are\n\
                  Cool\n\
-                 参加者募集！参戦ID：ABCD1234\n\
+                 ABCD1234 :参戦ID\n\
+                 参加者募集！\n\
                  Lv60 オオゾラッコ\n\
                  http://example.com/image-that-is-ignored.png",
             ),
@@ -414,7 +418,8 @@ mod test {
                  Newlines\n\
                  Are\n\
                  Cool\n\
-                 I need backup!Battle ID: ABCD1234\n\
+                 ABCD1234 :Battle ID\n\
+                 I need backup!\n\
                  Lvl 60 Ozorotter\n\
                  http://example.com/image-that-is-ignored.png",
             ),
