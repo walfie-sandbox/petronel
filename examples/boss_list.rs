@@ -1,11 +1,11 @@
 #[macro_use]
 extern crate error_chain;
 
+extern crate futures;
 extern crate hyper;
 extern crate hyper_tls;
-extern crate futures;
-extern crate tokio_core;
 extern crate petronel;
+extern crate tokio_core;
 
 use futures::{Future, Stream};
 use hyper_tls::HttpsConnector;
@@ -15,9 +15,7 @@ use std::time::Duration;
 use tokio_core::reactor::{Core, Interval};
 
 fn env(name: &str) -> Result<String> {
-    ::std::env::var(name).chain_err(|| {
-        format!("invalid value for {} environment variable", name)
-    })
+    ::std::env::var(name).chain_err(|| format!("invalid value for {} environment variable", name))
 }
 
 quick_main!(|| -> Result<()> {
@@ -47,12 +45,7 @@ quick_main!(|| -> Result<()> {
             bosses.sort_by_key(|b| b.level);
 
             for boss in bosses.iter() {
-                print!(
-                    "{:<3} | {} ({:?})",
-                    boss.level,
-                    boss.name,
-                    boss.language,
-                );
+                print!("{:<3} | {} ({:?})", boss.level, boss.name, boss.language,);
 
                 for image in boss.image.iter() {
                     println!(" {}", image);
@@ -63,8 +56,7 @@ quick_main!(|| -> Result<()> {
             Ok(())
         });
 
-    core.run(worker.join(interval)).chain_err(
-        || "stream failed",
-    )?;
+    core.run(worker.join(interval))
+        .chain_err(|| "stream failed")?;
     Ok(())
 });

@@ -84,9 +84,8 @@ impl Stream for RaidInfoStream {
         loop {
             let polled = self.0.poll().chain_err(|| ErrorKind::Twitter);
             if let Some(json) = try_ready!(polled) {
-                let msg = StreamMessage::from_str(json.as_ref()).chain_err(|| {
-                    ErrorKind::Json(json.to_string())
-                })?;
+                let msg = StreamMessage::from_str(json.as_ref())
+                    .chain_err(|| ErrorKind::Json(json.to_string()))?;
 
                 if let StreamMessage::Tweet(tweet) = msg {
                     if let Some(raid_info) = RaidInfo::from_tweet(*tweet) {
@@ -123,10 +122,11 @@ impl RaidInfo {
         let text = ::std::mem::replace(&mut tweet.text, "".into());
 
         parse_text(&text).map(move |parsed| {
-            let user_image = if tweet.user.default_profile_image ||
-                tweet.user.profile_image_url_https.contains(
-                    "default_profile",
-                )
+            let user_image = if tweet.user.default_profile_image
+                || tweet
+                    .user
+                    .profile_image_url_https
+                    .contains("default_profile")
             {
                 None
             } else {
@@ -144,9 +144,10 @@ impl RaidInfo {
                 language: parsed.language,
             };
 
-            let image = tweet.entities.media.and_then(|mut media| {
-                media.pop().map(|m| m.media_url_https.into())
-            });
+            let image = tweet
+                .entities
+                .media
+                .and_then(|mut media| media.pop().map(|m| m.media_url_https.into()));
 
             RaidInfo {
                 tweet: raid_tweet,
@@ -161,35 +162,34 @@ fn parse_text<'a>(tweet_text: &'a str) -> Option<TweetParts<'a>> {
         .captures(tweet_text)
         .map(|c| (Language::Japanese, c))
         .or_else(|| {
-            REGEX_ENGLISH.captures(tweet_text).map(
-                |c| (Language::English, c),
-            )
+            REGEX_ENGLISH
+                .captures(tweet_text)
+                .map(|c| (Language::English, c))
         })
-        .and_then(|(lang, c)| if let (Some(text),
-                            Some(id),
-                            Some(boss),
-                            Some(url)) =
-            (c.name("text"), c.name("id"), c.name("boss"), c.name("url"))
-        {
-            let boss_name = boss.as_str().trim();
-            let url_str = url.as_str();
-
-            if boss_name.contains("http") ||
-                !url_str.is_empty() && !REGEX_IMAGE_URL.is_match(url_str)
+        .and_then(|(lang, c)| {
+            if let (Some(text), Some(id), Some(boss), Some(url)) =
+                (c.name("text"), c.name("id"), c.name("boss"), c.name("url"))
             {
-                return None;
+                let boss_name = boss.as_str().trim();
+                let url_str = url.as_str();
+
+                if boss_name.contains("http")
+                    || !url_str.is_empty() && !REGEX_IMAGE_URL.is_match(url_str)
+                {
+                    return None;
+                }
+
+                let t = text.as_str().trim();
+
+                Some(TweetParts {
+                    language: lang,
+                    text: if t.is_empty() { None } else { Some(t) },
+                    raid_id: id.as_str().trim(),
+                    boss_name,
+                })
+            } else {
+                None
             }
-
-            let t = text.as_str().trim();
-
-            Some(TweetParts {
-                language: lang,
-                text: if t.is_empty() { None } else { Some(t) },
-                raid_id: id.as_str().trim(),
-                boss_name,
-            })
-        } else {
-            None
         })
 }
 
@@ -230,10 +230,10 @@ mod test {
         assert_eq!(
             parse_text(
                 "救援依頼 参加者募集！参戦ID：114514810\n\
-                Lv100 ケルベロス スマホRPGは今これをやってるよ。\
-                今の推しキャラはこちら！　\
-                ゲーム内プロフィール→　\
-                https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
+                 Lv100 ケルベロス スマホRPGは今これをやってるよ。\
+                 今の推しキャラはこちら！　\
+                 ゲーム内プロフィール→　\
+                 https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
             ),
             None
         );
@@ -245,11 +245,11 @@ mod test {
         assert_eq!(
             parse_text(
                 "救援依頼 参加者募集！参戦ID：114514810\n\
-                Lv100 ケルベロス\n\
-                スマホRPGは今これをやってるよ。\
-                今の推しキャラはこちら！　\
-                ゲーム内プロフィール→　\
-                https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
+                 Lv100 ケルベロス\n\
+                 スマホRPGは今これをやってるよ。\
+                 今の推しキャラはこちら！　\
+                 ゲーム内プロフィール→　\
+                 https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
             ),
             None
         );
@@ -261,8 +261,8 @@ mod test {
         assert_eq!(
             parse_text(
                 "救援依頼 参加者募集！参戦ID：114514810\n\
-                Lv100 ケルベロス\n\
-                https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
+                 Lv100 ケルベロス\n\
+                 https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
             ),
             None
         );
@@ -273,8 +273,8 @@ mod test {
         assert_eq!(
             parse_text(
                 "参加者募集！参戦ID：ABCD1234\n\
-                Lv60 オオゾラッコ\n\
-                http://example.com/image-that-is-ignored.png",
+                 Lv60 オオゾラッコ\n\
+                 http://example.com/image-that-is-ignored.png",
             ),
             Some(TweetParts::new(
                 Japanese,
@@ -287,8 +287,8 @@ mod test {
         assert_eq!(
             parse_text(
                 "I need backup!Battle ID: ABCD1234\n\
-                Lvl 60 Ozorotter\n\
-                http://example.com/image-that-is-ignored.png",
+                 Lvl 60 Ozorotter\n\
+                 http://example.com/image-that-is-ignored.png",
             ),
             Some(TweetParts::new(
                 English,
@@ -304,7 +304,7 @@ mod test {
         assert_eq!(
             parse_text(
                 "Help me 参加者募集！参戦ID：ABCD1234\n\
-                Lv60 オオゾラッコ",
+                 Lv60 オオゾラッコ",
             ),
             Some(TweetParts::new(
                 Japanese,
@@ -317,7 +317,7 @@ mod test {
         assert_eq!(
             parse_text(
                 "Help me I need backup!Battle ID: ABCD1234\n\
-                Lvl 60 Ozorotter",
+                 Lvl 60 Ozorotter",
             ),
             Some(TweetParts::new(
                 English,
@@ -333,7 +333,7 @@ mod test {
         assert_eq!(
             parse_text(
                 "参加者募集！参戦ID：ABCD1234\n\
-                Lv60 オオゾラッコ\n",
+                 Lv60 オオゾラッコ\n",
             ),
             Some(TweetParts::new(
                 Japanese,
@@ -346,7 +346,7 @@ mod test {
         assert_eq!(
             parse_text(
                 "I need backup!Battle ID: ABCD1234\n\
-                Lvl 60 Ozorotter\n",
+                 Lvl 60 Ozorotter\n",
             ),
             Some(TweetParts::new(
                 English,
@@ -357,14 +357,13 @@ mod test {
         );
     }
 
-
     #[test]
     fn parse_extra_text() {
         assert_eq!(
             parse_text(
                 "Help me 参加者募集！参戦ID：ABCD1234\n\
-                Lv60 オオゾラッコ\n\
-                http://example.com/image-that-is-ignored.png",
+                 Lv60 オオゾラッコ\n\
+                 http://example.com/image-that-is-ignored.png",
             ),
             Some(TweetParts::new(
                 Japanese,
@@ -377,8 +376,8 @@ mod test {
         assert_eq!(
             parse_text(
                 "Help me I need backup!Battle ID: ABCD1234\n\
-                Lvl 60 Ozorotter\n\
-                http://example.com/image-that-is-ignored.png",
+                 Lvl 60 Ozorotter\n\
+                 http://example.com/image-that-is-ignored.png",
             ),
             Some(TweetParts::new(
                 English,
@@ -394,12 +393,12 @@ mod test {
         assert_eq!(
             parse_text(
                 "Hey\n\
-                Newlines\n\
-                Are\n\
-                Cool\n\
-                参加者募集！参戦ID：ABCD1234\n\
-                Lv60 オオゾラッコ\n\
-                http://example.com/image-that-is-ignored.png",
+                 Newlines\n\
+                 Are\n\
+                 Cool\n\
+                 参加者募集！参戦ID：ABCD1234\n\
+                 Lv60 オオゾラッコ\n\
+                 http://example.com/image-that-is-ignored.png",
             ),
             Some(TweetParts::new(
                 Japanese,
@@ -412,12 +411,12 @@ mod test {
         assert_eq!(
             parse_text(
                 "Hey\n\
-                Newlines\n\
-                Are\n\
-                Cool\n\
-                I need backup!Battle ID: ABCD1234\n\
-                Lvl 60 Ozorotter\n\
-                http://example.com/image-that-is-ignored.png",
+                 Newlines\n\
+                 Are\n\
+                 Cool\n\
+                 I need backup!Battle ID: ABCD1234\n\
+                 Lvl 60 Ozorotter\n\
+                 http://example.com/image-that-is-ignored.png",
             ),
             Some(TweetParts::new(
                 English,

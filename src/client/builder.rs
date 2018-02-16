@@ -51,8 +51,7 @@ impl<'a, C>
         NoOpSubscriber,
         fn(Message) -> Option<()>,
         metrics::NoOp,
-    >
-where
+    > where
     C: Connect,
 {
     pub fn from_hyper_client(hyper_client: &'a hyper::Client<C>, token: &Token) -> Self {
@@ -167,9 +166,9 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
 
         // When the Twitter stream ends, fail with an error
         let stream_events = self.stream
-            .chain(::futures::stream::once(
-                Err(Error::from_kind(ErrorKind::Closed)),
-            ))
+            .chain(::futures::stream::once(Err(Error::from_kind(
+                ErrorKind::Closed,
+            ))))
             .map(Event::NewRaidInfo as fn(RaidInfo) -> Event<Sub, M::Export>);
 
         let to_read_error = |()| Ok(Event::ClientReadError);
@@ -186,10 +185,8 @@ impl<H, S, Sub, F, M> ClientBuilder<H, S, Sub, F, M> {
             _ => None,
         };
 
-        let hash_events = hash_receiver.filter_map(
-            filter_map_hashes as
-                fn(BossImageHash) -> Option<Event<Sub, M::Export>>,
-        );
+        let hash_events = hash_receiver
+            .filter_map(filter_map_hashes as fn(BossImageHash) -> Option<Event<Sub, M::Export>>);
 
         let cached_boss_list = (self.filter_map_message)(Message::BossList(&[]));
 

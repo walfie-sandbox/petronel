@@ -111,7 +111,6 @@ where
     }
 }
 
-
 #[derive(Debug)]
 #[must_use = "streams do nothing unless polled"]
 struct Inner<H> {
@@ -147,9 +146,7 @@ where
 // Specifically for raid boss images. Remove the lower 25% of the image
 // to get the boss image without the language-specific boss name.
 fn crop_and_hash(bytes: &[u8]) -> Result<ImageHash> {
-    let mut img = image::load_from_memory(bytes).chain_err(
-        || ErrorKind::ImageHash,
-    )?;
+    let mut img = image::load_from_memory(bytes).chain_err(|| ErrorKind::ImageHash)?;
     let (w, h) = img.dimensions();
     img = img.crop(0, 0, w, h * 3 / 4);
 

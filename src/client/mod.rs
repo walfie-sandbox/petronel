@@ -14,7 +14,6 @@ use id_pool::Id as SubId;
 use image_hash::ImageHash;
 use model::{BossName, RaidBoss, RaidBossMetadata, RaidTweet};
 use raid::RaidInfo;
-
 use std::fmt;
 use std::sync::Arc;
 
@@ -26,10 +25,19 @@ pub(crate) enum Event<Sub, M> {
         image_hash: ImageHash,
     },
 
-    SubscriberFollow { id: SubId, boss_name: BossName },
-    SubscriberUnfollow { id: SubId, boss_name: BossName },
+    SubscriberFollow {
+        id: SubId,
+        boss_name: BossName,
+    },
+    SubscriberUnfollow {
+        id: SubId,
+        boss_name: BossName,
+    },
     SubscriberGetBosses(SubId),
-    SubscriberGetTweets { id: SubId, boss_name: BossName },
+    SubscriberGetTweets {
+        id: SubId,
+        boss_name: BossName,
+    },
     SubscriberHeartbeat,
 
     SubscriberSubscribe {

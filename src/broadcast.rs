@@ -49,7 +49,9 @@ where
     S: Subscriber,
 {
     pub fn new() -> Self {
-        Broadcast { subscribers: HashMap::new() }
+        Broadcast {
+            subscribers: HashMap::new(),
+        }
     }
 }
 
@@ -90,8 +92,7 @@ where
 
     pub fn send(&mut self, message: &S::Item) {
         // Remove any subscribers that return an error
-        self.subscribers.retain(|_, subscriber| {
-            subscriber.send(message).is_ok()
-        })
+        self.subscribers
+            .retain(|_, subscriber| subscriber.send(message).is_ok())
     }
 }

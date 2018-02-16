@@ -1,5 +1,4 @@
 use chrono;
-
 pub use image_hash::ImageHash;
 use regex::Regex;
 use std::collections::HashSet;
@@ -73,9 +72,8 @@ where
 impl BossName {
     pub fn parse_level(&self) -> Option<BossLevel> {
         REGEX_BOSS_NAME.captures(self.0.as_ref()).and_then(|c| {
-            c.name("level").and_then(
-                |l| l.as_str().parse::<BossLevel>().ok(),
-            )
+            c.name("level")
+                .and_then(|l| l.as_str().parse::<BossLevel>().ok())
         })
     }
 
@@ -130,7 +128,6 @@ pub struct RaidTweet {
     pub created_at: DateTime,
     pub language: Language,
 }
-
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Language {

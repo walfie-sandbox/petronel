@@ -1,9 +1,9 @@
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
-extern crate serde_derive;
-#[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate serde_derive;
 
 extern crate bytes;
 extern crate futures;
@@ -19,7 +19,7 @@ extern crate tokio_core;
 use bytes::Bytes;
 use futures::{Future, Poll, Sink, Stream};
 use futures::sync::mpsc;
-use hyper::{StatusCode, header};
+use hyper::{header, StatusCode};
 use hyper::server::{Http, Request, Response, Service};
 use hyper_tls::HttpsConnector;
 use petronel::{Client, ClientBuilder, Subscriber, Subscription, Token};
@@ -32,9 +32,7 @@ use std::time::Duration;
 use tokio_core::reactor::{Core, Interval};
 
 fn env(name: &str) -> Result<String> {
-    ::std::env::var(name).chain_err(|| {
-        format!("invalid value for {} environment variable", name)
-    })
+    ::std::env::var(name).chain_err(|| format!("invalid value for {} environment variable", name))
 }
 
 quick_main!(|| -> Result<()> {
@@ -49,9 +47,9 @@ quick_main!(|| -> Result<()> {
     let handle = core.handle();
 
     // TODO: Configurable port
-    let bind_address = "127.0.0.1:3000".parse().chain_err(
-        || "failed to parse address",
-    )?;
+    let bind_address = "127.0.0.1:3000"
+        .parse()
+        .chain_err(|| "failed to parse address")?;
     let listener = tokio_core::net::TcpListener::bind(&bind_address, &handle)
         .chain_err(|| "failed to bind TCP listener")?;
 
@@ -237,7 +235,9 @@ impl Service for PetronelServer {
                         } else {
                             response(
                                 StatusCode::NotFound,
-                                &JsonError { error: "boss not found".to_string() },
+                                &JsonError {
+                                    error: "boss not found".to_string(),
+                                },
                             )
                         }
                     })

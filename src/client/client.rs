@@ -28,12 +28,10 @@ impl<Sub, M> Client<Sub, M> {
     }
 
     pub fn subscribe(&self, subscriber: Sub) -> AsyncResult<Subscription<Sub, M>> {
-        self.request(|sender| {
-            Event::SubscriberSubscribe {
-                subscriber,
-                sender,
-                client: self.clone(),
-            }
+        self.request(|sender| Event::SubscriberSubscribe {
+            subscriber,
+            sender,
+            client: self.clone(),
         })
     }
 
@@ -65,11 +63,9 @@ impl<Sub, M> Client<Sub, M> {
     where
         B: Into<BossName>,
     {
-        self.request(|tx| {
-            Event::ClientGetTweets {
-                boss_name: boss_name.into(),
-                sender: tx,
-            }
+        self.request(|tx| Event::ClientGetTweets {
+            boss_name: boss_name.into(),
+            sender: tx,
         })
     }
 
@@ -85,9 +81,9 @@ impl<Sub, M> Client<Sub, M> {
     where
         F: Fn(&RaidBossMetadata) -> bool + 'static,
     {
-        self.send(Event::ClientRemoveBosses(
-            RemoveBossesPredicate(Box::new(f)),
-        ));
+        self.send(Event::ClientRemoveBosses(RemoveBossesPredicate(Box::new(
+            f,
+        ))));
     }
 
     pub fn heartbeat(&self) {

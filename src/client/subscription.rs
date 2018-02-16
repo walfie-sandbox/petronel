@@ -1,5 +1,4 @@
 pub use client::Client;
-
 use id_pool::Id as SubId;
 use model::BossName;
 use std::collections::HashSet;
@@ -40,12 +39,9 @@ impl<Sub, M> Subscription<Sub, M> {
     where
         B: Into<BossName>,
     {
-        self.client.subscriber_get_tweets(
-            self.id.clone(),
-            boss_name.into(),
-        )
+        self.client
+            .subscriber_get_tweets(self.id.clone(), boss_name.into())
     }
-
 
     #[inline]
     pub fn unsubscribe(self) {

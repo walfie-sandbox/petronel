@@ -2,19 +2,16 @@
 extern crate error_chain;
 
 extern crate futures;
-extern crate tokio_core;
 extern crate petronel;
+extern crate tokio_core;
 
 use futures::Stream;
-
 use petronel::Token;
 use petronel::error::*;
 use tokio_core::reactor::Core;
 
 fn env(name: &str) -> Result<String> {
-    ::std::env::var(name).chain_err(|| {
-        format!("invalid value for {} environment variable", name)
-    })
+    ::std::env::var(name).chain_err(|| format!("invalid value for {} environment variable", name))
 }
 
 quick_main!(|| -> Result<()> {

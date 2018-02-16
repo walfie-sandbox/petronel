@@ -33,20 +33,14 @@ where
     pub(crate) hash_requester: ImageHashSender,
     pub(crate) id_pool: IdPool,
     pub(crate) events: Select<
-        Map<
-            Chain<S, Once<RaidInfo, Error>>,
-            fn(RaidInfo) -> Event<Sub, M::Export>,
-        >,
+        Map<Chain<S, Once<RaidInfo, Error>>, fn(RaidInfo) -> Event<Sub, M::Export>>,
         Select<
             OrElse<
                 mpsc::UnboundedReceiver<Event<Sub, M::Export>>,
                 fn(()) -> Result<Event<Sub, M::Export>>,
                 Result<Event<Sub, M::Export>>,
             >,
-            FilterMap<
-                ImageHashReceiver<H>,
-                fn(BossImageHash) -> Option<Event<Sub, M::Export>>,
-            >,
+            FilterMap<ImageHashReceiver<H>, fn(BossImageHash) -> Option<Event<Sub, M::Export>>>,
         >,
     >,
     pub(crate) bosses: HashMap<BossName, RaidBossEntry<Sub>>,
@@ -98,9 +92,9 @@ where
             }
             SubscriberGetTweets { id, boss_name } => {
                 if let Some(sub) = self.subscribers.get_mut(&id) {
-                    let tweets = self.bosses.get(&boss_name).map_or(&[][..], |e| {
-                        e.recent_tweets.as_unordered_slice()
-                    });
+                    let tweets = self.bosses
+                        .get(&boss_name)
+                        .map_or(&[][..], |e| e.recent_tweets.as_unordered_slice());
 
                     let message = (self.filter_map_message)(Message::TweetList(tweets));
 
@@ -180,17 +174,15 @@ where
     fn subscribe(&mut self, subscriber: Sub) -> SubId {
         let id = self.id_pool.get();
         self.subscribers.subscribe(id.clone(), subscriber);
-        self.metrics.set_total_subscriber_count(
-            self.subscribers.subscriber_count() as u32,
-        );
+        self.metrics
+            .set_total_subscriber_count(self.subscribers.subscriber_count() as u32);
         id
     }
 
     fn unsubscribe(&mut self, id: &SubId) {
         self.subscribers.unsubscribe(id);
-        self.metrics.set_total_subscriber_count(
-            self.subscribers.subscriber_count() as u32,
-        );
+        self.metrics
+            .set_total_subscriber_count(self.subscribers.subscriber_count() as u32);
         self.id_pool.recycle(id.clone());
     }
 
@@ -200,10 +192,8 @@ where
 
             if let Some(entry) = self.bosses.get_mut(&boss_name) {
                 entry.broadcast.subscribe(id, subscriber);
-                self.metrics.set_follower_count(
-                    &boss_name,
-                    entry.broadcast.subscriber_count() as u32,
-                );
+                self.metrics
+                    .set_follower_count(&boss_name, entry.broadcast.subscriber_count() as u32);
             } else {
                 match self.requested_bosses.entry(boss_name) {
                     Entry::Occupied(mut entry) => {
@@ -222,10 +212,8 @@ where
     fn unfollow(&mut self, id: &SubId, boss_name: BossName) {
         if let Some(entry) = self.bosses.get_mut(&boss_name) {
             entry.broadcast.unsubscribe(&id);
-            self.metrics.set_follower_count(
-                &boss_name,
-                entry.broadcast.subscriber_count() as u32,
-            );
+            self.metrics
+                .set_follower_count(&boss_name, entry.broadcast.subscriber_count() as u32);
         } else if let Entry::Occupied(mut entry) = self.requested_bosses.entry(boss_name) {
             let is_empty = {
                 let broadcast = entry.get_mut();
@@ -253,8 +241,8 @@ where
         let mut matches = Vec::new();
 
         for entry in self.bosses.values_mut() {
-            if entry.boss_data.boss.level == level && entry.boss_data.boss.language != language &&
-                entry.boss_data.image_hash == Some(image_hash)
+            if entry.boss_data.boss.level == level && entry.boss_data.boss.language != language
+                && entry.boss_data.image_hash == Some(image_hash)
             {
                 entry.boss_data.boss.translations.insert(boss_name.clone());
 
@@ -317,10 +305,8 @@ where
 
                 if value.boss_data.boss.image.is_none() {
                     if let Some(image_url) = info.image {
-                        self.hash_requester.request(
-                            value.boss_data.boss.name.clone(),
-                            &image_url,
-                        );
+                        self.hash_requester
+                            .request(value.boss_data.boss.name.clone(), &image_url);
                         value.boss_data.boss.image = Some(image_url);
                     }
                 }
@@ -351,9 +337,9 @@ where
             Entry::Vacant(entry) => {
                 let name = entry.key().clone();
 
-                let mut broadcast = self.requested_bosses.remove(&name).unwrap_or(
-                    Broadcast::new(),
-                );
+                let mut broadcast = self.requested_bosses
+                    .remove(&name)
+                    .unwrap_or(Broadcast::new());
 
                 let last_seen = info.tweet.created_at.clone();
                 let boss = RaidBoss {
@@ -366,10 +352,8 @@ where
 
                 {
                     let boss_message = Message::BossUpdate(&boss);
-                    self.subscribers.maybe_send(
-                        (self.filter_map_message)(boss_message)
-                            .as_ref(),
-                    );
+                    self.subscribers
+                        .maybe_send((self.filter_map_message)(boss_message).as_ref());
 
                     broadcast.maybe_send(mapped_tweet_message.as_ref());
                 }
