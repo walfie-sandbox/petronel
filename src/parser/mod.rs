@@ -1,7 +1,9 @@
+mod twitter;
+
+use self::twitter::Tweet;
 use super::{Language, Parser, Raid, RaidWithBossImage};
 use regex::Regex;
 use serde_json;
-use std::fmt;
 use std::marker::PhantomData;
 
 macro_rules! try_opt {
@@ -95,64 +97,6 @@ where
     T: AsRef<str>,
 {
     fn parse<'a>(&mut self, input: &'a T) -> Option<RaidWithBossImage<'a>> {
-        // Twitter API struct definitions
-        #[derive(Deserialize)]
-        struct Tweet<'a> {
-            created_at: &'a str,
-            text: &'a str,
-            source: &'a str,
-            user: User<'a>,
-            entities: Entities<'a>,
-        }
-
-        #[derive(Deserialize)]
-        struct Entities<'a> {
-            #[serde(borrow, deserialize_with = "deserialize_media")]
-            media: Option<Media<'a>>,
-        }
-
-        #[derive(Deserialize)]
-        struct Media<'a> {
-            media_url_https: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct User<'a> {
-            screen_name: &'a str,
-            default_profile_image: bool,
-            profile_image_url_https: &'a str,
-        }
-
-        // We only care about the first item in the `media` array, if it's present. To avoid
-        // needing to allocate a `Vec` for the `media` array, we use use a custom deserializer to
-        // get the first element.
-        use serde::de::{Deserializer, SeqAccess, Visitor};
-        fn deserialize_media<'de, D>(deserializer: D) -> Result<Option<Media<'de>>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            struct MediaVisitor;
-
-            impl<'de> Visitor<'de> for MediaVisitor {
-                type Value = Option<Media<'de>>;
-
-                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("an array of media objects")
-                }
-
-                fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
-                where
-                    S: SeqAccess<'de>,
-                {
-                    Ok(seq.next_element().ok().and_then(|e| e))
-                }
-            }
-
-            let visitor = MediaVisitor;
-            deserializer.deserialize_seq(visitor)
-        }
-
-        // Start parsing the tweet
         let tweet: Tweet = try_opt!(serde_json::from_str(input.as_ref()).ok());
 
         if tweet.source != GRANBLUE_APP_SOURCE {
