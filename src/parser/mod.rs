@@ -13,6 +13,7 @@ macro_rules! try_opt {
 const GRANBLUE_APP_SOURCE: &'static str =
     r#"<a href="http://granbluefantasy.jp/" rel="nofollow">グランブルー ファンタジー</a>"#;
 
+#[derive(Debug)]
 pub struct TweetJsonParser<T> {
     regex_jp: Regex,
     regex_en: Regex,
@@ -20,11 +21,29 @@ pub struct TweetJsonParser<T> {
     input_type: PhantomData<T>,
 }
 
+#[derive(Debug, PartialEq)]
 struct ParsedTweet<'a> {
     language: Language,
     text: Option<&'a str>,
     raid_id: &'a str,
     boss_name: &'a str,
+}
+
+#[cfg(test)]
+impl<'a> ParsedTweet<'a> {
+    fn new(
+        language: Language,
+        text: Option<&'a str>,
+        raid_id: &'a str,
+        boss_name: &'a str,
+    ) -> Self {
+        ParsedTweet {
+            language,
+            text,
+            raid_id,
+            boss_name,
+        }
+    }
 }
 
 impl<T> TweetJsonParser<T>
@@ -129,5 +148,211 @@ where
                 user_image,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use super::Language::{English, Japanese};
+
+    fn check(input: &str, expected: Option<ParsedTweet>) {
+        assert_eq!(
+            TweetJsonParser::<&'static str>::new().parse_text(&input),
+            expected
+        )
+    }
+
+    #[test]
+    fn parse_ignore_invalid_text() {
+        check("#GranblueHaiku http://example.com/haiku.png", None);
+    }
+
+    #[test]
+    fn parse_ignore_daily_refresh() {
+        // Ignore tweets made via the daily Twitter refresh
+        // https://github.com/walfie/gbf-raidfinder/issues/98
+        check(
+            "救援依頼 参加者募集！ 114514810 ：参戦ID\n\
+             Lv100 ケルベロス スマホRPGは今これをやってるよ。\
+             今の推しキャラはこちら！　\
+             ゲーム内プロフィール→　\
+             https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
+            None,
+        );
+    }
+
+    #[test]
+    fn parse_ignore_another_daily_refresh() {
+        // First two lines are user input
+        check(
+            "救援依頼 参加者募集！ 114514810 ：参戦ID\n\
+             Lv100 ケルベロス\n\
+             スマホRPGは今これをやってるよ。\
+             今の推しキャラはこちら！　\
+             ゲーム内プロフィール→　\
+             https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
+            None,
+        );
+    }
+
+    #[test]
+    fn parse_ignore_extra_space_in_image_url() {
+        // First two lines are user input
+        check(
+            "救援依頼 参加者募集！ 114514810 ：参戦ID\n\
+             Lv100 ケルベロス\n\
+             https://t.co/5Xgohi9wlE https://t.co/Xlu7lqQ3km",
+            None,
+        );
+    }
+
+    #[test]
+    fn parse_without_extra_text() {
+        check(
+            "ABCD1234 :参戦ID\n\
+             参加者募集！\n\
+             Lv60 オオゾラッコ\n\
+             http://example.com/image-that-is-ignored.png",
+            Some(ParsedTweet::new(
+                Japanese,
+                None,
+                "ABCD1234",
+                "Lv60 オオゾラッコ",
+            )),
+        );
+
+        check(
+            "ABCD1234 :Battle ID\n\
+             I need backup!\n\
+             Lvl 60 Ozorotter\n\
+             http://example.com/image-that-is-ignored.png",
+            Some(ParsedTweet::new(
+                English,
+                None,
+                "ABCD1234",
+                "Lvl 60 Ozorotter",
+            )),
+        );
+    }
+
+    #[test]
+    fn parse_without_image_url() {
+        check(
+            "Help me ABCD1234 :参戦ID\n\
+             参加者募集！\n\
+             Lv60 オオゾラッコ",
+            Some(ParsedTweet::new(
+                Japanese,
+                Some("Help me"),
+                "ABCD1234",
+                "Lv60 オオゾラッコ",
+            )),
+        );
+
+        check(
+            "Help me ABCD1234 :Battle ID\n\
+             I need backup!\n\
+             Lvl 60 Ozorotter",
+            Some(ParsedTweet::new(
+                English,
+                Some("Help me"),
+                "ABCD1234",
+                "Lvl 60 Ozorotter",
+            )),
+        );
+    }
+
+    #[test]
+    fn parse_with_extra_newline() {
+        check(
+            "ABCD1234 :参戦ID\n\
+             参加者募集！\n\
+             Lv60 オオゾラッコ\n",
+            Some(ParsedTweet::new(
+                Japanese,
+                None,
+                "ABCD1234",
+                "Lv60 オオゾラッコ",
+            )),
+        );
+
+        check(
+            "ABCD1234 :Battle ID\n\
+             I need backup!\n\
+             Lvl 60 Ozorotter\n",
+            Some(ParsedTweet::new(
+                English,
+                None,
+                "ABCD1234",
+                "Lvl 60 Ozorotter",
+            )),
+        );
+    }
+
+    #[test]
+    fn parse_extra_text() {
+        check(
+            "Help me ABCD1234 :参戦ID\n\
+             参加者募集！\n\
+             Lv60 オオゾラッコ\n\
+             http://example.com/image-that-is-ignored.png",
+            Some(ParsedTweet::new(
+                Japanese,
+                Some("Help me"),
+                "ABCD1234",
+                "Lv60 オオゾラッコ",
+            )),
+        );
+
+        check(
+            "Help me ABCD1234 :Battle ID\n\
+             I need backup!\n\
+             Lvl 60 Ozorotter\n\
+             http://example.com/image-that-is-ignored.png",
+            Some(ParsedTweet::new(
+                English,
+                Some("Help me"),
+                "ABCD1234",
+                "Lvl 60 Ozorotter",
+            )),
+        );
+    }
+
+    #[test]
+    fn parse_newlines_in_extra_text() {
+        check(
+            "Hey\n\
+             Newlines\n\
+             Are\n\
+             Cool\n\
+             ABCD1234 :参戦ID\n\
+             参加者募集！\n\
+             Lv60 オオゾラッコ\n\
+             http://example.com/image-that-is-ignored.png",
+            Some(ParsedTweet::new(
+                Japanese,
+                Some("Hey\nNewlines\nAre\nCool"),
+                "ABCD1234",
+                "Lv60 オオゾラッコ",
+            )),
+        );
+
+        check(
+            "Hey\n\
+             Newlines\n\
+             Are\n\
+             Cool\n\
+             ABCD1234 :Battle ID\n\
+             I need backup!\n\
+             Lvl 60 Ozorotter\n\
+             http://example.com/image-that-is-ignored.png",
+            Some(ParsedTweet::new(
+                English,
+                Some("Hey\nNewlines\nAre\nCool"),
+                "ABCD1234",
+                "Lvl 60 Ozorotter",
+            )),
+        );
     }
 }

@@ -10,6 +10,7 @@ use futures::Stream;
 
 mod parser;
 
+#[derive(Clone, Debug, PartialEq)]
 enum Language {
     English,
     Japanese,
@@ -17,11 +18,13 @@ enum Language {
 
 type BossName<'a> = &'a str;
 
+#[derive(Debug, PartialEq)]
 pub struct RaidWithBossImage<'a> {
     raid: Raid<'a>,
     image: Option<&'a str>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Raid<'a> {
     pub id: &'a str,
     pub user: &'a str,
