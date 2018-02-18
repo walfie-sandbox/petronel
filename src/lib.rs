@@ -1,3 +1,4 @@
+extern crate chrono;
 extern crate futures;
 extern crate regex;
 extern crate serde;
@@ -9,6 +10,8 @@ extern crate serde_derive;
 use futures::Stream;
 
 mod parser;
+
+type DateTime = chrono::DateTime<chrono::Utc>;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Language {
@@ -31,7 +34,7 @@ pub struct Raid<'a> {
     pub user_image: Option<&'a str>,
     pub boss: BossName<'a>,
     pub text: Option<&'a str>,
-    pub timestamp: u64,
+    pub timestamp: DateTime,
 }
 
 trait Components {

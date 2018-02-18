@@ -143,7 +143,7 @@ where
                 id: parsed.raid_id,
                 boss: parsed.boss_name,
                 text: parsed.text,
-                timestamp: 0, // TODO
+                timestamp: tweet.created_at,
                 user: tweet.user.screen_name,
                 user_image,
             },
